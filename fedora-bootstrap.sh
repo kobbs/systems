@@ -229,6 +229,7 @@ cat <<'ENVEOF' > "$_env_tmp"
 
 alias docker=podman
 export KIND_EXPERIMENTAL_PROVIDER=podman
+unset SSH_ASKPASS
 ENVEOF
 
 _env_file="$HOME/.config/shell/bootstrap-env.sh"
