@@ -160,7 +160,13 @@ ok "KeePassXC installed"
 # ---------------------------------------------------------------------------
 
 info "Installing KVM / virt-manager..."
-sudo dnf group install -y "Virtualization"
+sudo dnf install -y \
+    virt-manager \
+    qemu-kvm \
+    libvirt \
+    libvirt-daemon-config-network \
+    virt-install \
+    virt-viewer
 sudo usermod -aG libvirt "$USER"
 sudo systemctl enable --now libvirtd
 ok "KVM stack installed; user added to libvirt group"
