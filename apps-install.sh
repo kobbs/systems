@@ -120,7 +120,9 @@ ok "Nextcloud client installed"
 # Launched manually as a tray app; no autostart needed.
 
 info "Installing ProtonVPN..."
-sudo dnf install -y protonvpn-stable-release
+FEDORA_VER=$(rpm -E %fedora)
+sudo dnf install -y \
+    "https://repo.protonvpn.com/fedora-${FEDORA_VER}-stable/protonvpn-stable-release/protonvpn-stable-release-1.0.1-2.noarch.rpm"
 sudo dnf install -y proton-vpn-gtk-app
 ok "ProtonVPN installed"
 
