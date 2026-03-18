@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# Fedora 43+ Workstation Bootstrap Script
-# ========================================
-# Target: AMD GPU, Sway/Wayland, DevOps Tooling
+# Fedora Sway Spin Bootstrap Script
+# ===================================
+# Target: AMD GPU, Sway/Wayland (Sway Spin edition), DevOps Tooling
 # Machines: Home desktop, work laptop, personal laptop
 # Phase 1: System repos, packages, and system-level config only.
 #          User-level configs (sway, waybar, dotfiles) are handled in Phase 2.
 #
-# See also: fedora-sway-spin-bootstrap.sh (Sway Spin edition — trimmed package list)
+# See also: fedora-bootstrap.sh (KDE edition — installs full Sway stack from scratch)
 
 set -euo pipefail
 
@@ -17,7 +17,7 @@ source "$(dirname "$0")/lib/common.sh"
 # Version pins — override via environment if needed
 K8S_VERSION="${K8S_VERSION:-v1.32}"   # Kubernetes repo channel
 
-init_logging "fedora-bootstrap"
+init_logging "fedora-sway-spin-bootstrap"
 
 # ---------------------------------------------------------------------------
 # Helpers (specific to this script)
@@ -97,34 +97,24 @@ flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.f
 ok "Flathub ready"
 
 # ---------------------------------------------------------------------------
-# 4. Sway + Wayland Tooling
+# 4. Sway Extras (Sway Spin ships the core Wayland stack)
 # ---------------------------------------------------------------------------
+# The Sway Spin already includes: sway, waybar, foot, mako, grim, slurp,
+# wl-clipboard, swaylock, swayidle, swaybg, kanshi, xdg-desktop-portal-wlr,
+# and a polkit agent (polkit-gnome).
+# Only install what's missing from the spin.
 
-info "Installing Sway and Wayland tools..."
-# xdg-desktop-portal-wlr works alongside xdg-desktop-portal-kde (shipped by KDE spin);
-# the active portal is selected at runtime based on the running desktop session.
+info "Installing Sway extras (beyond Sway Spin defaults)..."
 sudo dnf install -y \
-    sway \
-    xdg-desktop-portal-wlr \
-    waybar \
-    kanshi \
-    swaybg \
-    swaylock \
-    swayidle \
-    grim \
-    slurp \
-    wl-clipboard \
-    mako \
-    mesa-demos \
-    vulkan-tools \
     kitty \
     bemenu \
+    mesa-demos \
+    vulkan-tools \
     libnotify \
     pavucontrol \
     network-manager-applet \
-    bluez \
-    mate-polkit
-ok "Sway stack installed"
+    bluez
+ok "Sway extras installed"
 
 # ---------------------------------------------------------------------------
 # 5. DevOps Stack
@@ -225,13 +215,12 @@ ensure_bashrc_source
 # Write bootstrap-env.sh only when the content has changed.
 _env_tmp=$(mktemp)
 cat <<'ENVEOF' > "$_env_tmp"
-# Managed by fedora-bootstrap.sh — Phase 1
+# Managed by fedora-sway-spin-bootstrap.sh — Phase 1
 # Do not edit manually; changes will be overwritten on next bootstrap run.
 # Put personal overrides in ~/.bashrc or a separate sourced file.
 
 alias docker=podman
 export KIND_EXPERIMENTAL_PROVIDER=podman
-unset SSH_ASKPASS
 ENVEOF
 
 _env_file="$HOME/.config/shell/bootstrap-env.sh"

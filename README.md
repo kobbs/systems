@@ -15,7 +15,15 @@ Installs and configures everything at the system level. Run once per machine as 
 bash fedora-bootstrap.sh
 ```
 
-**What it does:**
+### Sway Spin variant (`fedora-sway-spin-bootstrap.sh`)
+
+If starting from **Fedora Sway Spin** instead of KDE, use the trimmed variant — it skips packages the spin already ships (sway, waybar, kanshi, mako, grim, slurp, etc.) and drops the `unset SSH_ASKPASS` workaround (no ksshaskpass on the Sway Spin).
+
+```bash
+bash fedora-sway-spin-bootstrap.sh
+```
+
+**What it does** (full variant):
 
 - System update + RPM Fusion (free/nonfree) + multimedia codecs
 - Flathub remote
