@@ -121,9 +121,28 @@ ok "Nextcloud client installed"
 
 info "Installing ProtonVPN..."
 FEDORA_VER=$(rpm -E %fedora)
-sudo dnf install -y \
-    "https://repo.protonvpn.com/fedora-${FEDORA_VER}-stable/protonvpn-stable-release/protonvpn-stable-release-1.0.1-2.noarch.rpm"
-sudo dnf install -y proton-vpn-gtk-app
+PROTON_BASE="https://repo.protonvpn.com"
+PROTON_RPM="protonvpn-stable-release-1.0.1-2.noarch.rpm"
+
+# ProtonVPN may not yet publish a repo for the current Fedora version.
+# Walk backwards until we find one that exists (try up to 3 versions back).
+PROTON_URL=""
+for ver in "$FEDORA_VER" $(( FEDORA_VER - 1 )) $(( FEDORA_VER - 2 )); do
+    candidate="${PROTON_BASE}/fedora-${ver}-stable/protonvpn-stable-release/${PROTON_RPM}"
+    if curl -sf --head "$candidate" -o /dev/null; then
+        PROTON_URL="$candidate"
+        [ "$ver" -ne "$FEDORA_VER" ] && warn "ProtonVPN repo not found for Fedora ${FEDORA_VER}, using Fedora ${ver} repo"
+        break
+    fi
+done
+
+if [ -z "$PROTON_URL" ]; then
+    warn "Could not find a ProtonVPN repo RPM for Fedora ${FEDORA_VER} or the two previous releases. Skipping."
+else
+    sudo dnf install -y "$PROTON_URL"
+    sudo dnf install -y proton-vpn-gtk-app
+    ok "ProtonVPN installed"
+fi
 ok "ProtonVPN installed"
 
 # ---------------------------------------------------------------------------
