@@ -100,28 +100,29 @@ Then add a profile block to `kanshi/config`.
 
 ### Claude Code
 
-Claude Code has no RPM or Flatpak package. Install into an isolated local directory (npm equivalent of a Python virtualenv):
+Claude Code has no RPM or Flatpak package. Use the official native installer (no Node.js or npm required):
 
 ```bash
-# Node.js 18+ is required
-sudo dnf install -y nodejs npm
-
-# Create the isolated environment
-mkdir -p ~/.local/share/claude-code
-cd ~/.local/share/claude-code
-npm install @anthropic-ai/claude-code
-
-# Expose the binary
-echo 'export PATH="$HOME/.local/share/claude-code/node_modules/.bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
-# Verify
-claude --version
+curl -fsSL https://claude.ai/install.sh | bash
 ```
 
-All packages live in `~/.local/share/claude-code/node_modules/` — nothing touches the system npm prefix. Remove everything with `rm -rf ~/.local/share/claude-code`. Upgrade with `cd ~/.local/share/claude-code && npm install @anthropic-ai/claude-code@latest`.
+This installs a self-contained binary to `~/.claude/` and adds it to your PATH. Updates happen automatically in the background.
 
 On first run, `claude` will open a browser window to authenticate with your Anthropic account.
+
+**Migrating from the old npm-based install:** If you previously installed via npm, clean up the old setup:
+
+```bash
+# Remove the isolated npm environment
+rm -rf ~/.local/share/claude-code
+
+# Remove the PATH entry added to ~/.bashrc
+# Edit ~/.bashrc and delete the line:
+# export PATH="$HOME/.local/share/claude-code/node_modules/.bin:$PATH"
+
+# nodejs/npm can be removed too if not needed for anything else
+sudo dnf remove nodejs npm
+```
 
 ---
 

@@ -57,6 +57,18 @@ info "Deploying kanshi config..."
 link_file "$REPO_DIR/kanshi/config" "$HOME/.config/kanshi/config"
 
 # ---------------------------------------------------------------------------
+# Bash prompt
+# ---------------------------------------------------------------------------
+info "Deploying bash prompt..."
+link_file "$REPO_DIR/bash/prompt.sh" "$HOME/.config/shell/prompt.sh"
+
+# Source from .bashrc if not already present
+PROMPT_SOURCE_LINE="[[ -f \"\$HOME/.config/shell/prompt.sh\" ]] && source \"\$HOME/.config/shell/prompt.sh\""
+grep -qF "prompt.sh" "$HOME/.bashrc" 2>/dev/null \
+    || echo "$PROMPT_SOURCE_LINE" >> "$HOME/.bashrc"
+ok "Bash prompt configured (takes effect in new shells)"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
@@ -70,4 +82,5 @@ echo "  2. Or restart sway:      Super+Shift+E → restart"
 echo "  3. Add kanshi profile for this machine if needed:"
 echo "       swaymsg -t get_outputs"
 echo "       # then edit: $REPO_DIR/kanshi/config"
+echo "  4. Reload shell prompt:  source ~/.bashrc"
 echo ""
