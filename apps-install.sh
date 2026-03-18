@@ -69,8 +69,12 @@ ok "Browsers installed"
 # EasyEffects: Flatpak — RPM version has PipeWire context connection failures
 #              reported on Fedora 41+.
 
+info "Ensuring Flathub user remote is configured..."
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+ok "Flathub user remote ready"
+
 info "Installing EasyEffects (Flatpak)..."
-flatpak install -y flathub com.github.wwmm.easyeffects
+flatpak install --user -y flathub com.github.wwmm.easyeffects
 ok "EasyEffects installed"
 
 # ---------------------------------------------------------------------------
@@ -95,8 +99,8 @@ ok "Mesa acceleration packages installed"
 #         unofficial RPM options.
 
 info "Installing communication apps (Flatpak)..."
-flatpak install -y flathub com.slack.Slack
-flatpak install -y flathub org.signal.Signal
+flatpak install --user -y flathub com.slack.Slack
+flatpak install --user -y flathub org.signal.Signal
 ok "Slack and Signal installed"
 
 # ---------------------------------------------------------------------------
