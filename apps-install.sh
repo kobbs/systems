@@ -9,30 +9,28 @@
 
 set -euo pipefail
 
-LOG="/tmp/apps-install-$(date +%s).log"
-exec > >(tee -a "$LOG") 2>&1
+# shellcheck source=lib/common.sh
+source "$(dirname "$0")/lib/common.sh"
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+# Version pins — override via environment if needed
+PROTON_RPM="${PROTON_RPM:-protonvpn-stable-release-1.0.1-2.noarch.rpm}"
 
-info() { echo -e "\n\033[1;34m→ $*\033[0m"; }
-ok()   { echo -e "\033[1;32m✓ $*\033[0m"; }
-warn() { echo -e "\033[1;33m⚠ $*\033[0m"; }
+init_logging "apps-install"
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
 # ---------------------------------------------------------------------------
 
-if [[ $EUID -eq 0 ]]; then
-    echo "ERROR: Run as a regular user, not root. The script uses sudo internally." >&2
-    exit 1
-fi
+preflight_checks
+require_cmd flatpak "sudo dnf install -y flatpak"
 
-if ! grep -q '^ID=fedora$' /etc/os-release 2>/dev/null; then
-    echo "ERROR: This script targets Fedora. Detected OS is not Fedora." >&2
-    exit 1
-fi
+# ---------------------------------------------------------------------------
+# Helpers (specific to this script)
+# ---------------------------------------------------------------------------
+
+flatpak_install() {
+    flatpak install --user -y flathub "$1"
+}
 
 # ---------------------------------------------------------------------------
 # 1. Browsers
@@ -45,8 +43,9 @@ info "Installing browsers..."
 
 sudo dnf install -y firefox
 
-# Enable native Wayland rendering for Firefox in Sway
-if ! grep -q 'MOZ_ENABLE_WAYLAND' /etc/environment 2>/dev/null; then
+# Enable native Wayland rendering for Firefox in Sway.
+# grep -xF matches the exact line, preventing false positives on substrings.
+if ! grep -xF 'MOZ_ENABLE_WAYLAND=1' /etc/environment 2>/dev/null; then
     echo 'MOZ_ENABLE_WAYLAND=1' | sudo tee -a /etc/environment > /dev/null
     ok "MOZ_ENABLE_WAYLAND=1 added to /etc/environment"
 else
@@ -74,7 +73,7 @@ flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/fl
 ok "Flathub user remote ready"
 
 info "Installing EasyEffects (Flatpak)..."
-flatpak install --user -y flathub com.github.wwmm.easyeffects
+flatpak_install com.github.wwmm.easyeffects
 ok "EasyEffects installed"
 
 # ---------------------------------------------------------------------------
@@ -99,8 +98,8 @@ ok "Mesa acceleration packages installed"
 #         unofficial RPM options.
 
 info "Installing communication apps (Flatpak)..."
-flatpak install --user -y flathub com.slack.Slack
-flatpak install --user -y flathub org.signal.Signal
+flatpak_install com.slack.Slack
+flatpak_install org.signal.Signal
 ok "Slack and Signal installed"
 
 # ---------------------------------------------------------------------------
@@ -120,25 +119,31 @@ ok "Nextcloud client installed"
 # Launched manually as a tray app; no autostart needed.
 
 info "Installing ProtonVPN..."
+require_cmd curl "sudo dnf install -y curl"
 FEDORA_VER=$(rpm -E %fedora)
 PROTON_BASE="https://repo.protonvpn.com"
-PROTON_RPM="protonvpn-stable-release-1.0.1-2.noarch.rpm"
 
 # ProtonVPN may not yet publish a repo for the current Fedora version.
 # Walk backwards until we find one that exists (try up to 3 versions back).
+# Each candidate URL is retried up to 3 times with a 2-second back-off.
 PROTON_URL=""
 for ver in "$FEDORA_VER" $(( FEDORA_VER - 1 )) $(( FEDORA_VER - 2 )); do
     candidate="${PROTON_BASE}/fedora-${ver}-stable/protonvpn-stable-release/${PROTON_RPM}"
-    if curl -sf --head "$candidate" -o /dev/null; then
-        PROTON_URL="$candidate"
-        [ "$ver" -ne "$FEDORA_VER" ] && warn "ProtonVPN repo not found for Fedora ${FEDORA_VER}, using Fedora ${ver} repo"
-        break
-    fi
+    for attempt in 1 2 3; do
+        if curl -sf --head "$candidate" -o /dev/null; then
+            PROTON_URL="$candidate"
+            break 2
+        fi
+        (( attempt < 3 )) && sleep 2
+    done
+    [ "$ver" -ne "$FEDORA_VER" ] && warn "ProtonVPN repo not found for Fedora ${FEDORA_VER}, trying Fedora ${ver}"
 done
 
 if [ -z "$PROTON_URL" ]; then
     warn "Could not find a ProtonVPN repo RPM for Fedora ${FEDORA_VER} or the two previous releases. Skipping."
 else
+    [ "$(rpm -E %fedora)" -ne "$FEDORA_VER" ] && \
+        warn "Using ProtonVPN repo from a different Fedora release: $PROTON_URL"
     sudo dnf install -y "$PROTON_URL"
     sudo dnf install -y proton-vpn-gtk-app
     ok "ProtonVPN installed"
@@ -167,7 +172,7 @@ sudo dnf install -y \
     libvirt-daemon-config-network \
     virt-install \
     virt-viewer
-sudo usermod -aG libvirt "$USER"
+sudo usermod -aG libvirt "$(id -un)"
 sudo systemctl enable --now libvirtd
 ok "KVM stack installed; user added to libvirt group"
 

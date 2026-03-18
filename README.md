@@ -128,4 +128,4 @@ sudo dnf remove nodejs npm
 
 ### GPU control tools
 
-`corectrl` is commented out in `sway/config`. It entered maintenance mode in May 2025 and has limited RDNA2+ support. Recommended modern alternative: **LACT** (`ilyaz/LACT` COPR). Install manually if needed.
+`corectrl` is commented out in `sway/config`. It is no longer actively maintained and has limited RDNA2+ support. Recommended modern alternative: **LACT** (`ilyaz/LACT` COPR). Install manually if needed.

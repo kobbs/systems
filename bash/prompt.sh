@@ -16,6 +16,7 @@ _RED="$(_pc 91)"     # bright red    — root / non-zero exit
 
 # ── Git status ────────────────────────────────────────────────────────────────
 _prompt_git() {
+    command -v git &>/dev/null || return 0
     local branch dirty=""
     branch=$(git symbolic-ref --short HEAD 2>/dev/null) \
         || branch=$(git describe --tags --exact-match 2>/dev/null) \
@@ -42,4 +43,4 @@ _build_prompt() {
     PS1+="${_B}╰─${_R}${exit_str}${user_color}${_B}${prompt_char}${_R} "
 }
 
-PROMPT_COMMAND="_build_prompt"
+PROMPT_COMMAND="${PROMPT_COMMAND:+${PROMPT_COMMAND}$'\n'}_build_prompt"

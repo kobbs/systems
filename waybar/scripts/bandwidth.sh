@@ -1,5 +1,10 @@
 #!/bin/bash
-STATE=/tmp/waybar_bw_prev
+set -euo pipefail
+
+# Use XDG_RUNTIME_DIR (user-private, chmod 700, managed by systemd-logind).
+# /tmp is world-writable and a fixed path there is a symlink-attack target.
+STATE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/waybar_bw_prev"
+
 IF=$(ip route | awk '/default/ {print $5; exit}')
 
 if [ -z "$IF" ]; then
@@ -7,8 +12,16 @@ if [ -z "$IF" ]; then
   exit 0
 fi
 
-RX=$(cat /sys/class/net/$IF/statistics/rx_bytes)
-TX=$(cat /sys/class/net/$IF/statistics/tx_bytes)
+RX_FILE="/sys/class/net/${IF}/statistics/rx_bytes"
+TX_FILE="/sys/class/net/${IF}/statistics/tx_bytes"
+
+if [[ ! -r "$RX_FILE" || ! -r "$TX_FILE" ]]; then
+  echo " --"
+  exit 0
+fi
+
+RX=$(< "$RX_FILE")
+TX=$(< "$TX_FILE")
 NOW=$(date +%s%N)   # nanoseconds for accurate elapsed time
 
 if [ -f "$STATE" ]; then
@@ -23,12 +36,21 @@ fi
 
 echo "$RX $TX $NOW" > "$STATE"
 
+# Pure-bash integer arithmetic for KB/s and MB/s (common cases).
+# bc is only used for GB/s (rare), and only when available.
 fmt() {
   local b=$1
-  if   (( b >= 1073741824 )); then printf "%.1fGB/s" "$(echo "scale=1; $b/1073741824" | bc)"
-  elif (( b >= 1048576    )); then printf "%.1fMB/s" "$(echo "scale=1; $b/1048576"    | bc)"
-  else printf "%dKB/s" "$(( b / 1024 ))"
+  if (( b >= 1073741824 )); then
+    if command -v bc &>/dev/null; then
+      printf "%.1fGB/s" "$(echo "scale=1; $b/1073741824" | bc)"
+    else
+      printf "%d.%dGB/s" "$(( b / 1073741824 ))" "$(( (b % 1073741824) * 10 / 1073741824 ))"
+    fi
+  elif (( b >= 1048576 )); then
+    printf "%d.%dMB/s" "$(( b / 1048576 ))" "$(( (b % 1048576) * 10 / 1048576 ))"
+  else
+    printf "%dKB/s" "$(( b / 1024 ))"
   fi
 }
 
-echo " $(fmt $RX_RATE)  $(fmt $TX_RATE)"
+echo " $(fmt "$RX_RATE")  $(fmt "$TX_RATE")"

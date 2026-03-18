@@ -9,18 +9,17 @@
 
 set -euo pipefail
 
-K8S_VERSION="v1.32"   # Kubernetes repo channel
+# shellcheck source=lib/common.sh
+source "$(dirname "$0")/lib/common.sh"
 
-LOG="/tmp/fedora-bootstrap-$(date +%s).log"
-exec > >(tee -a "$LOG") 2>&1
+# Version pins — override via environment if needed
+K8S_VERSION="${K8S_VERSION:-v1.32}"   # Kubernetes repo channel
+
+init_logging "fedora-bootstrap"
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers (specific to this script)
 # ---------------------------------------------------------------------------
-
-info()  { echo -e "\n\033[1;34m→ $*\033[0m"; }
-ok()    { echo -e "\033[1;32m✓ $*\033[0m"; }
-warn()  { echo -e "\033[1;33m⚠ $*\033[0m"; }
 
 ensure_bashrc_source() {
     # Source a dedicated env file from .bashrc, idempotently.
@@ -34,15 +33,8 @@ ensure_bashrc_source() {
 # ---------------------------------------------------------------------------
 # Pre-flight checks
 # ---------------------------------------------------------------------------
-if [[ $EUID -eq 0 ]]; then
-    echo "ERROR: Run as a regular user, not root. The script uses sudo internally." >&2
-    exit 1
-fi
 
-if ! grep -q '^ID=fedora$' /etc/os-release 2>/dev/null; then
-    echo "ERROR: This script targets Fedora. Detected OS is not Fedora." >&2
-    exit 1
-fi
+preflight_checks
 
 # ---------------------------------------------------------------------------
 # Machine detection (expand as needed)
@@ -82,7 +74,7 @@ fi
 
 sudo dnf config-manager setopt fedora-cisco-openh264.enabled=1
 
-if rpm -q ffmpeg-free &>/dev/null; then
+if rpm -q ffmpeg-free &>/dev/null && ! rpm -q ffmpeg &>/dev/null; then
     sudo dnf swap ffmpeg-free ffmpeg --allowerasing -y
 fi
 
@@ -185,7 +177,7 @@ ok "DevOps stack installed"
 
 if [ "$HAS_DISCRETE_AMD_GPU" = true ]; then
     info "Discrete AMD GPU found — adding user to render/video groups (for future ROCm)"
-    sudo usermod -aG video,render "$USER"
+    sudo usermod -aG video,render "$(id -un)"
     ok "GPU groups configured"
 else
     info "No discrete AMD GPU detected — skipping GPU group setup"
@@ -228,7 +220,9 @@ info "Configuring shell environment..."
 
 ensure_bashrc_source
 
-cat <<'ENVEOF' > "$HOME/.config/shell/bootstrap-env.sh"
+# Write bootstrap-env.sh only when the content has changed.
+_env_tmp=$(mktemp)
+cat <<'ENVEOF' > "$_env_tmp"
 # Managed by fedora-bootstrap.sh — Phase 1
 # Do not edit manually; changes will be overwritten on next bootstrap run.
 # Put personal overrides in ~/.bashrc or a separate sourced file.
@@ -237,7 +231,14 @@ alias docker=podman
 export KIND_EXPERIMENTAL_PROVIDER=podman
 ENVEOF
 
-ok "Shell env configured"
+_env_file="$HOME/.config/shell/bootstrap-env.sh"
+if ! cmp -s "$_env_tmp" "$_env_file" 2>/dev/null; then
+    mv "$_env_tmp" "$_env_file"
+    ok "Shell env configured"
+else
+    rm -f "$_env_tmp"
+    ok "Shell env already up to date"
+fi
 
 # ---------------------------------------------------------------------------
 # 10. Keyboard Layout (system-wide default)

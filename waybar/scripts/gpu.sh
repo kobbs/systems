@@ -1,12 +1,24 @@
 #!/bin/bash
-HWMON=$(ls /sys/class/drm/card*/device/hwmon/hwmon*/temp1_input 2>/dev/null | head -1)
-BUSY=$(ls /sys/class/drm/card*/device/gpu_busy_percent 2>/dev/null | head -1)
+set -euo pipefail
 
-if [ -z "$HWMON" ]; then
+# Use glob directly instead of parsing ls output (fragile and wrong for paths
+# with spaces or special chars).
+HWMON=""
+for f in /sys/class/drm/card*/device/hwmon/hwmon*/temp1_input; do
+  [[ -r "$f" ]] && HWMON="$f" && break
+done
+
+BUSY=""
+for f in /sys/class/drm/card*/device/gpu_busy_percent; do
+  [[ -r "$f" ]] && BUSY="$f" && break
+done
+
+if [[ -z "$HWMON" ]]; then
   echo " GPU N/A"
   exit 0
 fi
 
-TEMP=$(( $(cat "$HWMON") / 1000 ))
-LOAD=$(cat "$BUSY" 2>/dev/null || echo "?")
+TEMP=$(( $(< "$HWMON") / 1000 ))
+LOAD="?"
+[[ -n "$BUSY" ]] && LOAD=$(< "$BUSY")
 echo " ${TEMP}°C ${LOAD}%"

@@ -3,18 +3,21 @@
 # Dotfiles Deploy Script — Phase 2
 # =================================
 # Symlinks configs from this repo into ~/.config/.
-# Safe to re-run: existing symlinks are updated, existing files are backed up.
+# Safe to re-run: already-correct symlinks are skipped, existing files are
+# backed up with a .bak suffix.
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-info() { echo -e "\n\033[1;34m→ $*\033[0m"; }
-ok()   { echo -e "\033[1;32m✓ $*\033[0m"; }
-warn() { echo -e "\033[1;33m⚠ $*\033[0m"; }
+# shellcheck source=lib/common.sh
+source "${REPO_DIR}/lib/common.sh"
+
+init_logging "dotfiles-deploy"
 
 # ---------------------------------------------------------------------------
-# Link a single file. Backs up existing non-symlink files, replaces symlinks.
+# Link a single file. Skips if already linked correctly. Backs up existing
+# non-symlink files. Replaces incorrect symlinks.
 # Usage: link_file <repo_path> <target_path>
 # ---------------------------------------------------------------------------
 link_file() {
@@ -22,6 +25,12 @@ link_file() {
     local dst="$2"
 
     mkdir -p "$(dirname "$dst")"
+
+    # Already points to the correct target — nothing to do.
+    if [[ "$(readlink "$dst" 2>/dev/null)" == "$src" ]]; then
+        ok "$dst already linked (skipped)"
+        return 0
+    fi
 
     if [[ -L "$dst" ]]; then
         rm "$dst"
@@ -74,6 +83,7 @@ ok "Bash prompt configured (takes effect in new shells)"
 echo ""
 echo "============================================"
 echo "  Dotfiles deployed!"
+echo "  Log: $LOG"
 echo "============================================"
 echo ""
 echo "Next steps:"
