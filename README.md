@@ -49,6 +49,33 @@ Then reload sway with `Super+Shift+C`, or restart it.
 
 ---
 
+## Phase 3 — Application Stack (`apps-install.sh`)
+
+Installs user-facing applications after Phase 1 and Phase 2. Run as a regular user.
+
+```bash
+bash apps-install.sh
+```
+
+**What it installs:**
+
+| App | Method | Reason |
+|---|---|---|
+| Firefox | RPM | Standard Fedora package; sets `MOZ_ENABLE_WAYLAND=1` in `/etc/environment` |
+| Brave | RPM (vendor repo) | Vendor recommends RPM; Flatpak disables Chromium's internal sandbox |
+| EasyEffects | Flatpak | RPM has PipeWire context failures on Fedora 41+ |
+| Slack | Flatpak | Sandbox isolation for sensitive comms |
+| Signal | Flatpak | No official Fedora RPM; Flathub is standard |
+| Nextcloud | RPM | Integrates with system file manager and tray |
+| ProtonVPN | RPM (vendor repo) | Flatpak has Wayland rendering failures; needs NetworkManager integration |
+| KeePassXC | RPM | Browser native messaging works RPM→RPM (Brave, Firefox) |
+| virt-manager / KVM | RPM group | `Virtualization` group + libvirt service + libvirt group membership |
+| Podman | — | Already installed in Phase 1; script confirms |
+
+**After running:** log out and back in for `libvirt` group membership to take effect.
+
+---
+
 ## Dotfiles overview
 
 | Path | Purpose |

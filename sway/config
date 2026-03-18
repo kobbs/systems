@@ -18,7 +18,6 @@ exec /usr/libexec/polkit-mate-authentication-agent-1
 exec waybar
 exec mako --default-timeout 5000
 #exec corectrl  # AMD GPU tool — install manually if needed
-#exec flatpak run com.protonvpn.www
 exec bluetoothctl power on
 
 # -- mods
