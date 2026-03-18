@@ -1,0 +1,3 @@
+wget https://raw.githubusercontent.com/kamlendras/waybar-config/refs/heads/main/.config config
+wget https://raw.githubusercontent.com/kamlendras/waybar-config/refs/heads/main/style.css 
+

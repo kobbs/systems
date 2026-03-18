@@ -1,0 +1,21 @@
+window {
+  background-color: #222222;
+  border: none;
+}
+
+#input {
+  margin: 5px;
+  background-color: #333333;
+  color: #ffffff;
+}
+
+#entry {
+  padding: 5px;
+  background-color: #222222;
+  color: #ffffff;
+}
+
+#entry:selected {
+  background-color: #555555;
+  color: #ffffff;
+}

@@ -1,0 +1,27 @@
+# kanshi output profile configuration
+# =====================================
+# Profiles are matched by connected output names (from EDID).
+# kanshi activates the first profile whose outputs all match what is plugged in.
+#
+# To discover output names on a new machine:
+#   swaymsg -t get_outputs
+#   # or: kanshi --debug (shows matched/unmatched profiles at startup)
+#
+# Docs: https://sr.ht/~emersion/kanshi/
+
+# -- Home desktop (single DP-3, AMD discrete GPU)
+profile desktop {
+    output DP-3 mode 2560x1440@165Hz position 0,0 scale 1
+}
+
+# -- Laptop (built-in display only)
+# Uncomment and adjust connector name + resolution for each laptop.
+#profile laptop-solo {
+#    output eDP-1 mode 1920x1080@60Hz position 0,0 scale 1
+#}
+
+# -- Laptop docked (built-in + external)
+#profile laptop-docked {
+#    output eDP-1 mode 1920x1080@60Hz position 2560,0 scale 1
+#    output DP-1  mode 2560x1440@60Hz position 0,0    scale 1
+#}

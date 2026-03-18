@@ -1,0 +1,188 @@
+# sway config
+
+input * {
+   xkb_layout fr
+}
+
+# Universal output fallback — kanshi handles per-machine profiles
+# Run: swaymsg -t get_outputs   (to discover connector names on a new machine)
+output * {
+    background #222222 solid_color
+    scale 1
+}
+
+exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec kanshi
+#exec /usr/lib/policykit-1-gnome/polkit-gnome-authentication-agent-1
+exec /usr/libexec/polkit-mate-authentication-agent-1
+exec waybar
+exec mako --default-timeout 5000
+#exec corectrl  # AMD GPU tool — install manually if needed
+#exec flatpak run com.protonvpn.www
+exec bluetoothctl power on
+
+# -- mods
+set $mod Mod4
+set $mod2 Mod1
+floating_modifier $mod
+
+# -- workspaces
+set $ws1 "1"
+set $ws2 "2"
+set $ws3 "3"
+set $ws4 "4"
+set $ws5 "5"
+set $ws6 "6"
+set $ws7 "7"
+set $ws8 "8"
+set $ws9 "9"
+set $ws10 "10"
+set $ws11 "11"
+set $ws12 "12"
+set $ws13 "13"
+set $ws14 "14"
+set $ws15 "15"
+set $ws16 "16"
+set $ws17 "17"
+set $ws18 "18"
+set $ws19 "19"
+set $ws20 "20"
+
+bindsym $mod+ampersand workspace 1
+bindsym $mod+eacute workspace 2
+bindsym $mod+quotedbl workspace 3
+bindsym $mod+apostrophe workspace 4
+bindsym $mod+parenleft workspace 5
+bindsym $mod+minus workspace 6
+bindsym $mod+egrave workspace 7
+bindsym $mod+underscore workspace 8
+bindsym $mod+ccedilla workspace 9
+bindsym $mod+agrave workspace 10
+bindsym $mod+$mod2+1 workspace $ws11
+bindsym $mod+$mod2+2 workspace $ws12
+bindsym $mod+$mod2+3 workspace $ws13
+bindsym $mod+$mod2+4 workspace $ws14
+bindsym $mod+$mod2+5 workspace $ws15
+bindsym $mod+$mod2+6 workspace $ws16
+bindsym $mod+$mod2+7 workspace $ws17
+bindsym $mod+$mod2+8 workspace $ws18
+bindsym $mod+$mod2+9 workspace $ws19
+bindsym $mod+$mod2+0 workspace $ws20
+
+# -- move to workspace
+bindsym $mod+Shift+ampersand move container to workspace 1
+bindsym $mod+Shift+eacute move container to workspace 2
+bindsym $mod+Shift+quotedbl move container to workspace 3
+bindsym $mod+Shift+apostrophe move container to workspace 4
+bindsym $mod+Shift+parenleft move container to workspace 5
+bindsym $mod+Shift+minus move container to workspace 6
+bindsym $mod+Shift+egrave move container to workspace 7
+bindsym $mod+Shift+underscore move container to workspace 8
+bindsym $mod+Shift+ccedilla move container to workspace 9
+bindsym $mod+Shift+agrave move container to workspace 10
+bindsym $mod+$mod2+Shift+1 move container to workspace 11
+bindsym $mod+$mod2+Shift+2 move container to workspace 12
+bindsym $mod+$mod2+Shift+3 move container to workspace 13
+bindsym $mod+$mod2+Shift+4 move container to workspace 14
+bindsym $mod+$mod2+Shift+5 move container to workspace 15
+bindsym $mod+$mod2+Shift+6 move container to workspace 16
+bindsym $mod+$mod2+Shift+7 move container to workspace 17
+bindsym $mod+$mod2+Shift+8 move container to workspace 18
+bindsym $mod+$mod2+Shift+9 move container to workspace 19
+bindsym $mod+$mod2+Shift+0 move container to workspace 20
+
+# Change container layout
+bindsym $mod+s layout stacking;exec notify-send 'Stacking mode'
+bindsym $mod+z layout tabbed;exec notify-send 'Tabbing mode'
+bindsym $mod+e layout toggle split;exec notify-send 'Splitting mode'
+
+# Change tilling direction
+bindsym $mod+h split h;exec notify-send 'Tile horizontally'
+bindsym $mod+v split v;exec notify-send 'Tile vertically'
+bindsym $mod+x layout toggle; exec notify-send 'Tile toggle'
+
+# Toggle sticky
+bindsym $mod+Shift+s sticky toggle;exec notify-send 'Toggle sticky container mode'
+
+# -- key bindings
+bindsym Control+$mod+Left workspace prev
+bindsym Control+$mod+Right workspace next
+bindsym $mod+Return exec kitty
+bindsym $mod+Shift+A kill
+bindsym $mod+d exec bemenu-run --fn "monospace 10" --nb "#1a1a1a" --nf "#ffaa00" --hb "#ffaa00" --hf "#1a1a1a" --fb "#1a1a1a" --ff "#ffaa00" --line-height 28 --width-factor 1.0 --margin 0 --no-overlap --monitor 0 --tf "#ffaa00"
+bindsym $mod+y exec env > /tmp/env.txt
+bindsym $mod+j focus left
+bindsym $mod+k focus down
+bindsym $mod+l focus up
+bindsym $mod+m focus right
+bindsym $mod+Left focus left
+bindsym $mod+Down focus down
+bindsym $mod+Up focus up
+bindsym $mod+Right focus right
+bindsym $mod+Shift+j move left
+bindsym $mod+Shift+k move down
+bindsym $mod+Shift+l move up
+bindsym $mod+Shift+M move right
+bindsym $mod+Shift+Left move left
+bindsym $mod+Shift+Down move down
+bindsym $mod+Shift+Up move up
+bindsym $mod+Shift+Right move right
+bindsym $mod+f fullscreen toggle
+bindsym $mod+Shift+space floating toggle
+bindsym $mod+space focus mode_toggle
+bindsym $mod+a focus parent
+bindsym $mod+q focus child
+
+bindsym $mod+r mode "resize"
+bindsym $mod+Shift+c reload
+bindsym $mod+Shift+r restart
+bindsym $mod+Shift+e exec swaynag -t warning -m 'You pressed the exit shortcut. Do you really want to exit sway? This will end your Wayland session.' -B 'Yes, exit sway' 'swaymsg exit'
+
+## -- themes
+#font pango:Droid Sans Fallback 12
+## colour of border, background, text, indicator, and child_border
+##client.focused #F57900 #555754 #FFFFFF #F57A00
+##client.focused_inactive #F67900 #2E3537 #FFFFFF #E68A00
+##client.unfocused #2E3436 #2E3436 #FFFFFF #2E3436
+#client.focused   #FF8800 #555754 #FFFFFF #F57A00
+#client.unfocused #C05A00 #2E3436 #FFFFFF #2E3436
+#client.urgent #A40000 #2E3436 #FFFFFF #2E3436
+#client.placeholder #8BE235 #2E3436 #D8DEE8 #2E3436
+#client.background #2E3436
+#default_border pixel 3
+
+# -- themes
+font pango:Droid Sans Fallback 12
+default_border pixel 1
+# colour of border, background, text, indicator, and child_border
+## - orange
+#client.focused          #FF6600 #555754 #FFFFFF #FF6600 #FF6600
+#client.focused_inactive #995200 #2E3537 #FFFFFF #995200 #995200
+#client.unfocused        #331A00 #2E3436 #FFFFFF #331A00 #331A00
+#client.urgent           #A40000 #2E3436 #FFFFFF #A40000 #A40000
+#client.placeholder      #8BE235 #2E3436 #D8DEE8 #2E3436 #2E3436
+#client.background       #2E3436
+## - blue
+#client.focused          #3399FF #555754 #FFFFFF #3399FF #3399FF
+#client.focused_inactive #1A4D80 #2E3537 #FFFFFF #1A4D80 #1A4D80
+#client.unfocused        #0A1F33 #2E3436 #FFFFFF #0A1F33 #0A1F33
+#client.urgent           #A40000 #2E3436 #FFFFFF #A40000 #A40000
+#client.placeholder      #8BE235 #2E3436 #D8DEE8 #2E3436 #2E3436
+#client.background       #2E3436
+## - green
+client.focused          #88DD00 #555754 #FFFFFF #88DD00 #88DD00
+client.focused_inactive #557700 #2E3537 #FFFFFF #557700 #557700
+client.unfocused        #2A3B00 #2E3436 #FFFFFF #2A3B00 #2A3B00
+client.urgent           #A40000 #2E3436 #FFFFFF #A40000 #A40000
+client.placeholder      #8BE235 #2E3436 #D8DEE8 #2E3436 #2E3436
+client.background       #2E3436
+
+# -- modes
+mode "resize" {
+        bindsym Left resize shrink width 10 px or 10 ppt
+        bindsym Up resize grow height 10 px or 10 ppt
+        bindsym Down resize shrink height 10 px or 10 ppt
+        bindsym Right resize grow width 10 px or 10 ppt
+        bindsym Return mode "default"
+        bindsym Escape mode "default"
+}
