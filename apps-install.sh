@@ -143,7 +143,6 @@ else
     sudo dnf install -y proton-vpn-gtk-app
     ok "ProtonVPN installed"
 fi
-ok "ProtonVPN installed"
 
 # ---------------------------------------------------------------------------
 # 7. KeePassXC
@@ -161,7 +160,7 @@ ok "KeePassXC installed"
 # ---------------------------------------------------------------------------
 
 info "Installing KVM / virt-manager..."
-sudo dnf groupinstall -y "Virtualization"
+sudo dnf group install -y "Virtualization"
 sudo usermod -aG libvirt "$USER"
 sudo systemctl enable --now libvirtd
 ok "KVM stack installed; user added to libvirt group"
