@@ -98,6 +98,33 @@ swaymsg -t get_outputs   # or: kanshi --debug
 
 Then add a profile block to `kanshi/config`.
 
+### Claude Code
+
+Claude Code has no RPM or Flatpak package. Install into an isolated local directory (npm equivalent of a Python virtualenv):
+
+```bash
+# Node.js 18+ is required
+sudo dnf install -y nodejs npm
+
+# Create the isolated environment
+mkdir -p ~/.local/share/claude-code
+cd ~/.local/share/claude-code
+npm install @anthropic-ai/claude-code
+
+# Expose the binary
+echo 'export PATH="$HOME/.local/share/claude-code/node_modules/.bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Verify
+claude --version
+```
+
+All packages live in `~/.local/share/claude-code/node_modules/` — nothing touches the system npm prefix. Remove everything with `rm -rf ~/.local/share/claude-code`. Upgrade with `cd ~/.local/share/claude-code && npm install @anthropic-ai/claude-code@latest`.
+
+On first run, `claude` will open a browser window to authenticate with your Anthropic account.
+
+---
+
 ### GPU control tools
 
 `corectrl` is commented out in `sway/config`. It entered maintenance mode in May 2025 and has limited RDNA2+ support. Recommended modern alternative: **LACT** (`ilyaz/LACT` COPR). Install manually if needed.

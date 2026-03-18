@@ -3,7 +3,7 @@ HWMON=$(ls /sys/class/drm/card*/device/hwmon/hwmon*/temp1_input 2>/dev/null | he
 BUSY=$(ls /sys/class/drm/card*/device/gpu_busy_percent 2>/dev/null | head -1)
 
 if [ -z "$HWMON" ]; then
-  echo "GPU N/A"
+  echo " GPU N/A"
   exit 0
 fi
 

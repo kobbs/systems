@@ -40,7 +40,7 @@
   },
 
   "clock": {
-    "format": "{:%a %d %b  %H:%M:%S}",
+    "format": " {:%a %d %b  %H:%M:%S}",
     "tooltip-format": "{:%Y-%m-%d %H:%M:%S}",
     "interval": 1
   },
@@ -58,8 +58,8 @@
 
   "network#vpn": {
     "interface": "proton0",
-    "format": "VPN: {ipaddr}",
-    "format-disconnected": "VPN: Disconnected",
+    "format": " VPN: {ipaddr}",
+    "format-disconnected": " VPN: Off",
     "tooltip-format": "{ifname} - {ipaddr}",
     "on-click": "nm-connection-editor"
   },
