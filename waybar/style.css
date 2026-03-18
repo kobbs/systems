@@ -56,7 +56,7 @@ window#waybar {
 #battery,
 #cpu,
 #memory,
-#temperature,
+#disk,
 #backlight,
 #network,
 #pulseaudio,
@@ -64,8 +64,7 @@ window#waybar {
 #tray,
 #mode,
 #idle_inhibitor,
-#mpd,
-#custom-vpn {
+#mpd {
   font-size: 14px;
   padding: 0 10px;
   margin: 6px 3px;
@@ -77,15 +76,19 @@ window#waybar {
   color: #88DD00;
 }
 #cpu {
-  background-color: #222;
+  background-color: #2a2a2a;
   color: #ffffff;
 }
 #memory {
-  background-color: #242424;
+  background-color: #2a2a2a;
   color: white;
 }
+#disk {
+  background-color: #2a2a2a;
+  color: #ffffff;
+}
 #network {
-  background-color: #262626;
+  background-color: #2a2a2a;
   color: white;
 }
 #network.disconnected {
@@ -95,19 +98,12 @@ window#waybar {
   background-color: #3cf583;
 }
 #pulseaudio {
-  background-color: #282828;
-  color: #ffffff;
-}
-#pulseaudio.muted {
-  background-color: #282828;
-  color: #ffffff;
-}
-#temperature {
   background-color: #2a2a2a;
   color: #ffffff;
 }
-#temperature.critical {
-  background-color: #eb4d4b;
+#pulseaudio.muted {
+  background-color: #2a2a2a;
+  color: #ffffff;
 }
 #tray {
   background-color: #2a2a2a;
@@ -116,9 +112,23 @@ window#waybar {
 #mode {
   background-color: #2a2a2a;
 }
-#custom-vpn {
-  background-color: #2e2e2e;
-  color: #ffcc00;
+#custom-bandwidth {
+  background-color: #1e1e1e;
+  color: #aaaaaa;
+  padding: 0 12px;
+  font-size: 13px;
+}
+#custom-gpu {
+  background-color: #2a2a2a;
+  color: #ffffff;
+  padding: 0 10px;
+  margin: 6px 3px;
+}
+#window {
+  font-size: 13px;
+  color: #aaaaaa;
+  padding: 0 10px;
+  margin: 6px 3px;
 }
 label:focus {
   background-color: #000000;

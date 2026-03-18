@@ -1,26 +1,24 @@
 {
   "layer": "top",
   "position": "top",
-  "modules-left": ["sway/workspaces"],
+  "modules-left": ["sway/workspaces", "sway/window"],
   "modules-center": [
   "custom/bandwidth"
   ],
   "modules-right": [
-    "custom/vpn",
     "network#vpn",
     "network#wifi",
+    "custom/gpu",
     "cpu",
     "memory",
+    "disk",
     "pulseaudio",
     "clock",
     "tray"
   ],
 
-  "custom/vpn": {
-    "exec": "~/.config/waybar/scripts/netstatus.sh",
-    "exec-if": "test -x ~/.config/waybar/scripts/netstatus.sh",
-    "interval": 10,
-    "return-type": "text",
+  "sway/window": {
+    "max-length": 60,
     "format": "{}",
     "tooltip": false
   },
@@ -33,6 +31,14 @@
     "format": "{}"
   },
 
+  "custom/gpu": {
+    "exec": "~/.config/waybar/scripts/gpu.sh",
+    "exec-if": "test -x ~/.config/waybar/scripts/gpu.sh",
+    "interval": 5,
+    "return-type": "text",
+    "format": "{}"
+  },
+
   "clock": {
     "format": "{:%a %d %b  %H:%M:%S}",
     "tooltip-format": "{:%Y-%m-%d %H:%M:%S}",
@@ -41,15 +47,15 @@
 
   "pulseaudio": {
     "scroll-step": 5,
-    "format": " {volume}%",
-    "format-muted": " Muted",
-    "format-source": " {volume}%",
-    "format-source-muted": " Muted Mic",
+    "format": " {volume}%",
+    "format-muted": " Muted",
+    "format-source": " {volume}%",
+    "format-source-muted": " Muted Mic",
     "on-click": "pavucontrol",
     "sources": true,
     "sinks": true
   },
- 
+
   "network#vpn": {
     "interface": "proton0",
     "format": "VPN: {ipaddr}",
@@ -57,35 +63,30 @@
     "tooltip-format": "{ifname} - {ipaddr}",
     "on-click": "nm-connection-editor"
   },
-  "network#eth": {
-    "interface": "enp12s0",
-    "format": "Eth: {ifname}",
-    "format-disconnected": "{ifname}: Down",
-    "tooltip-format": "{ifname} - {ipaddr} via {gwaddr}\n",
-    "on-click": "nm-connection-editor",
-  },
+
   "network#wifi": {
     "interface": "wlp11s0",
-    "format": "WiFi: {ifname}",
-    "format-disconnected": "{ifname}: Down",
-    "tooltip-format": "{ifname} - {ipaddr} via {gwaddr}\n",
-    "on-click": "nm-connection-editor",
+    "format": "  {essid} {signaldBm}dBm",
+    "format-disconnected": " Down",
+    "tooltip-format": "{ifname} — {ipaddr} via {gwaddr}",
+    "on-click": "nm-connection-editor"
   },
 
   "cpu": {
-    "format": " {usage}%",
+    "format": " {usage}%",
     "tooltip": true
   },
 
   "memory": {
-    "format": " {used:0.1f}G",
+    "format": " {used:0.1f}G",
     "tooltip": true
   },
 
-  "temperature": {
-    "critical-threshold": 75,
-    "format": " {temperatureC}°C",
-    "tooltip": false
+  "disk": {
+    "path": "/",
+    "format": " {percentage_used}%",
+    "tooltip-format": "{used} / {total} used ({percentage_used}%)",
+    "interval": 30
   },
 
   "tray": {
@@ -93,4 +94,3 @@
     "spacing": 8
   }
 }
-
