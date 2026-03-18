@@ -37,21 +37,15 @@ bash fedora-bootstrap.sh
 
 ---
 
-## Phase 2 — Dotfiles (manual for now)
+## Phase 2 — Dotfiles (`dotfiles-deploy.sh`)
 
-Symlink the configs into place. Replace `<repo>` with the path where this repo is cloned.
+Symlinks all configs from the repo into `~/.config/`. Safe to re-run — existing symlinks are updated, existing files are backed up with a `.bak` suffix.
 
 ```bash
-mkdir -p ~/.config/sway ~/.config/waybar ~/.config/kanshi
-
-ln -s <repo>/sway/config       ~/.config/sway/config
-ln -s <repo>/waybar/config     ~/.config/waybar/config
-ln -s <repo>/waybar/style.css  ~/.config/waybar/style.css
-ln -s <repo>/waybar/scripts    ~/.config/waybar/scripts
-ln -s <repo>/kanshi/config     ~/.config/kanshi/config
-
-chmod +x ~/.config/waybar/scripts/*.sh
+bash dotfiles-deploy.sh
 ```
+
+Then reload sway with `Super+Shift+C`, or restart it.
 
 ---
 
