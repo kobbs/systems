@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # CachyOS-inspired bash prompt
-# Managed by dotfiles-deploy.sh — edit here, re-run deploy to apply.
+# Managed by scripts/deploy.sh — edit here, re-run deploy to apply.
 
 # ── ANSI color helpers (use \001/\002 so bash counts width correctly) ─────────
 _pc() { printf '\001\e[%sm\002' "$1"; }

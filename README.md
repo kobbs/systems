@@ -5,23 +5,49 @@ Fedora workstation bootstrap and dotfiles.
 **Targets:** AMD GPU desktop, work laptop, personal laptop
 **Stack:** Fedora 41+, Sway/Wayland, Waybar, Kanshi
 
+## Repo structure
+
+```
+scripts/             Automation (run these)
+  bootstrap.sh       Phase 1 — system packages, repos, env vars
+  deploy.sh          Phase 2 — symlink configs into ~/.config/
+  apps.sh            Phase 3 — user-facing applications
+  lib/common.sh      Shared helpers (logging, preflight checks)
+
+config/              Dotfiles (source of truth, deployed by scripts/deploy.sh)
+  sway/              Sway compositor config
+  waybar/            Waybar modules, styles, and scripts
+  kanshi/            Per-machine display profiles
+  gtk/               GTK 3/4 dark theme (single file, symlinked to both)
+  qt5ct/             Qt5 theme settings
+  qt6ct/             Qt6 theme settings
+  kde/               KDE Frameworks color scheme (kdeglobals)
+  bash/              Shell prompt
+```
+
 ---
 
-## Phase 1 — Bootstrap (`fedora-bootstrap.sh`)
+## Phase 1 — Bootstrap (`scripts/bootstrap.sh`)
 
 Installs and configures everything at the system level. Run once per machine as a regular user (not root).
 
 ```bash
-bash fedora-bootstrap.sh
+bash scripts/bootstrap.sh
 ```
 
-### Sway Spin variant (`fedora-sway-spin-bootstrap.sh`)
+### Sway Spin variant
 
-If starting from **Fedora Sway Spin** instead of KDE, use the trimmed variant — it skips packages the spin already ships (sway, waybar, kanshi, mako, grim, slurp, etc.) and drops the `unset SSH_ASKPASS` workaround (no ksshaskpass on the Sway Spin).
+If starting from **Fedora Sway Spin** instead of base Fedora, pass the `--sway-spin` flag (or let the script auto-detect — it checks if `sway` is already installed):
 
 ```bash
-bash fedora-sway-spin-bootstrap.sh
+bash scripts/bootstrap.sh --sway-spin
+bash scripts/bootstrap.sh --base       # force base Fedora mode
+bash scripts/bootstrap.sh              # auto-detect (persisted for re-runs)
 ```
+
+The detected mode is saved to `~/.config/shell/.bootstrap-mode` so re-runs use the same mode even after sway is installed.
+
+In Sway Spin mode the script skips packages the spin already ships (sway, waybar, kanshi, mako, grim, slurp, etc.) and drops the `unset SSH_ASKPASS` workaround (no ksshaskpass on the Sway Spin).
 
 **What it does** (full variant):
 
@@ -31,8 +57,9 @@ bash fedora-sway-spin-bootstrap.sh
 - DevOps tooling: ansible, terraform, kubectl, helm, podman, kind, jq, yq
 - Security: pam-u2f, yubikey-manager
 - CLI utilities: git, curl, ripgrep, fzf, tmux, btop, fd-find, and more
-- Shell env: `~/.config/shell/bootstrap-env.sh` sourced from `.bashrc` (sets `alias docker=podman`, `KIND_EXPERIMENTAL_PROVIDER=podman`)
+- Shell env: `~/.config/shell/bootstrap-env.sh` sourced from `.bashrc`
 - Keyboard layout: FR (system-wide)
+- SDDM greeter: solid dark background (#222222) matching Sway
 - GPU groups: adds user to `video` and `render` if a discrete AMD GPU (RDNA2+) is detected
 
 **After running, reboot** to apply group changes and keyboard layout.
@@ -45,24 +72,24 @@ bash fedora-sway-spin-bootstrap.sh
 
 ---
 
-## Phase 2 — Dotfiles (`dotfiles-deploy.sh`)
+## Phase 2 — Dotfiles (`scripts/deploy.sh`)
 
-Symlinks all configs from the repo into `~/.config/`. Safe to re-run — existing symlinks are updated, existing files are backed up with a `.bak` suffix.
+Symlinks all configs from `config/` into `~/.config/`. Safe to re-run — existing symlinks are updated, existing files are backed up with a timestamped `.bak` suffix.
 
 ```bash
-bash dotfiles-deploy.sh
+bash scripts/deploy.sh
 ```
 
 Then reload sway with `Super+Shift+C`, or restart it.
 
 ---
 
-## Phase 3 — Application Stack (`apps-install.sh`)
+## Phase 3 — Application Stack (`scripts/apps.sh`)
 
 Installs user-facing applications after Phase 1 and Phase 2. Run as a regular user.
 
 ```bash
-bash apps-install.sh
+bash scripts/apps.sh
 ```
 
 **What it installs:**
@@ -76,7 +103,7 @@ bash apps-install.sh
 | Signal | Flatpak | No official Fedora RPM; Flathub is standard |
 | Nextcloud | RPM | Integrates with system file manager and tray |
 | ProtonVPN | RPM (vendor repo) | Flatpak has Wayland rendering failures; needs NetworkManager integration |
-| KeePassXC | RPM | Browser native messaging works RPM→RPM (Brave, Firefox) |
+| KeePassXC | RPM | Browser native messaging works RPM-to-RPM (Brave, Firefox) |
 | virt-manager / KVM | RPM group | `Virtualization` group + libvirt service + libvirt group membership |
 | Podman | — | Already installed in Phase 1; script confirms |
 
@@ -84,17 +111,7 @@ bash apps-install.sh
 
 ---
 
-## Dotfiles overview
-
-| Path | Purpose |
-|---|---|
-| `sway/config` | Sway compositor config — keybinds, layout, autostart, themes |
-| `waybar/config` | Waybar modules and layout |
-| `waybar/style.css` | Waybar stylesheet |
-| `waybar/scripts/` | Custom waybar scripts (bandwidth, VPN status) |
-| `kanshi/config` | Per-machine display profiles (matched by output name) |
-
-### Kanshi display profiles
+## Kanshi display profiles
 
 Kanshi matches connected outputs against named profiles. When no profile matches (e.g. on a KVM VM), it exits cleanly and Sway's `output * { scale 1 }` fallback takes over.
 
@@ -104,9 +121,11 @@ To add a profile for a new machine:
 swaymsg -t get_outputs   # or: kanshi --debug
 ```
 
-Then add a profile block to `kanshi/config`.
+Then add a profile block to `config/kanshi/config`.
 
-### Claude Code
+---
+
+## Claude Code
 
 Claude Code has no RPM or Flatpak package. Use the official native installer (no Node.js or npm required):
 
@@ -134,6 +153,6 @@ sudo dnf remove nodejs npm
 
 ---
 
-### GPU control tools
+## GPU control tools
 
-`corectrl` is commented out in `sway/config`. It is no longer actively maintained and has limited RDNA2+ support. Recommended modern alternative: **LACT** (`ilyaz/LACT` COPR). Install manually if needed.
+**LACT** (`ilyaz/LACT` COPR) is the recommended GPU control tool for RDNA2+. Install manually if needed.

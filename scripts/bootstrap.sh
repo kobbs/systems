@@ -1,36 +1,53 @@
 #!/bin/bash
 
-# Fedora Sway Spin Bootstrap Script
-# ===================================
-# Target: AMD GPU, Sway/Wayland (Sway Spin edition), DevOps Tooling
+# Fedora Bootstrap Script
+# =======================
+# Target: AMD GPU, Sway/Wayland, DevOps Tooling
 # Machines: Home desktop, work laptop, personal laptop
 # Phase 1: System repos, packages, and system-level config only.
 #          User-level configs (sway, waybar, dotfiles) are handled in Phase 2.
 #
-# See also: fedora-bootstrap.sh (KDE edition — installs full Sway stack from scratch)
+# Usage:
+#   ./scripts/bootstrap.sh              # auto-detects Sway Spin vs base Fedora
+#   ./scripts/bootstrap.sh --sway-spin  # force Sway Spin mode (skip core Sway packages)
 
 set -euo pipefail
 
-# shellcheck source=lib/common.sh
+# shellcheck source=scripts/lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
 
 # Version pins — override via environment if needed
 K8S_VERSION="${K8S_VERSION:-v1.32}"   # Kubernetes repo channel
 
-init_logging "fedora-sway-spin-bootstrap"
-
 # ---------------------------------------------------------------------------
-# Helpers (specific to this script)
+# Mode detection: Sway Spin ships sway pre-installed; base Fedora does not.
+# The detected mode is persisted to a state file so re-runs use the same mode
+# (after base Fedora installs sway, auto-detection alone would flip to Sway
+# Spin mode and change the shell environment).
+# Override with --sway-spin / --base flag if auto-detection doesn't fit.
 # ---------------------------------------------------------------------------
+_MODE_FILE="$HOME/.config/shell/.bootstrap-mode"
+SWAY_SPIN=false
+if [[ "${1:-}" == "--sway-spin" ]]; then
+    SWAY_SPIN=true
+elif [[ "${1:-}" == "--base" ]]; then
+    SWAY_SPIN=false
+elif [[ -f "$_MODE_FILE" ]] && grep -qxE 'true|false' "$_MODE_FILE"; then
+    # Re-run: use the mode from the first run
+    SWAY_SPIN=$(cat "$_MODE_FILE")
+elif rpm -q sway &>/dev/null; then
+    SWAY_SPIN=true
+fi
+mkdir -p "$(dirname "$_MODE_FILE")"
+echo "$SWAY_SPIN" > "$_MODE_FILE"
 
-ensure_bashrc_source() {
-    # Source a dedicated env file from .bashrc, idempotently.
-    local env_file="$HOME/.config/shell/bootstrap-env.sh"
-    local source_line="[[ -f \"$env_file\" ]] && source \"$env_file\""
-    mkdir -p "$(dirname "$env_file")"
-    grep -qF "bootstrap-env.sh" "$HOME/.bashrc" 2>/dev/null || \
-        echo "$source_line" >> "$HOME/.bashrc"
-}
+if [ "$SWAY_SPIN" = true ]; then
+    init_logging "bootstrap-sway-spin"
+    info "Mode: Sway Spin (core Sway packages assumed pre-installed)"
+else
+    init_logging "bootstrap"
+    info "Mode: Base Fedora (full Sway stack will be installed)"
+fi
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
@@ -97,24 +114,52 @@ flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.f
 ok "Flathub ready"
 
 # ---------------------------------------------------------------------------
-# 4. Sway Extras (Sway Spin ships the core Wayland stack)
+# 4. Sway + Wayland Tooling
 # ---------------------------------------------------------------------------
-# The Sway Spin already includes: sway, waybar, foot, mako, grim, slurp,
-# wl-clipboard, swaylock, swayidle, swaybg, kanshi, xdg-desktop-portal-wlr,
-# and a polkit agent (polkit-gnome).
-# Only install what's missing from the spin.
 
-info "Installing Sway extras (beyond Sway Spin defaults)..."
-sudo dnf install -y \
-    kitty \
-    bemenu \
-    mesa-demos \
-    vulkan-tools \
-    libnotify \
-    pavucontrol \
-    network-manager-applet \
+# Packages needed on both base Fedora and Sway Spin (sorted alphabetically)
+SWAY_COMMON_PKGS=(
+    bemenu
     bluez
-ok "Sway extras installed"
+    google-roboto-mono-fonts
+    kitty
+    libnotify
+    mesa-demos
+    network-manager-applet
+    pavucontrol
+    qt5ct
+    qt6ct
+    vulkan-tools
+)
+
+if [ "$SWAY_SPIN" = true ]; then
+    # Sway Spin ships: sway, waybar, foot, mako, grim, slurp, wl-clipboard,
+    # swaylock, swayidle, swaybg, kanshi, xdg-desktop-portal-wlr, polkit-gnome.
+    # Only install what's missing from the spin.
+    info "Installing Sway extras (beyond Sway Spin defaults)..."
+    sudo dnf install -y "${SWAY_COMMON_PKGS[@]}"
+    ok "Sway extras installed"
+else
+    info "Installing Sway and Wayland tools..."
+    # Core Sway/Wayland stack (not present on base Fedora)
+    # xdg-desktop-portal-wlr works alongside xdg-desktop-portal-kde;
+    # the active portal is selected at runtime based on the running session.
+    sudo dnf install -y \
+        "${SWAY_COMMON_PKGS[@]}" \
+        grim \
+        kanshi \
+        mako \
+        mate-polkit \
+        slurp \
+        sway \
+        swaybg \
+        swayidle \
+        swaylock \
+        waybar \
+        wl-clipboard \
+        xdg-desktop-portal-wlr
+    ok "Sway stack installed"
+fi
 
 # ---------------------------------------------------------------------------
 # 5. DevOps Stack
@@ -141,13 +186,13 @@ fi
 
 sudo dnf install -y \
     ansible \
-    terraform \
-    kubectl \
     helm \
+    jq \
+    kind \
+    kubectl \
     podman \
     podman-compose \
-    kind \
-    jq \
+    terraform \
     yq
 
 ok "DevOps stack installed"
@@ -191,17 +236,17 @@ ok "Yubikey tools installed"
 
 info "Installing essential CLI utilities..."
 sudo dnf install -y \
-    git \
-    curl \
-    wget \
-    htop \
     btop \
-    ripgrep \
+    curl \
     fd-find \
     fzf \
+    git \
+    htop \
+    p7zip \
+    ripgrep \
     tmux \
     unzip \
-    p7zip
+    wget
 ok "CLI tools installed"
 
 # ---------------------------------------------------------------------------
@@ -214,14 +259,22 @@ ensure_bashrc_source
 
 # Write bootstrap-env.sh only when the content has changed.
 _env_tmp=$(mktemp)
+trap 'rm -f "$_env_tmp"' EXIT
 cat <<'ENVEOF' > "$_env_tmp"
-# Managed by fedora-sway-spin-bootstrap.sh — Phase 1
+# Managed by scripts/bootstrap.sh — Phase 1
 # Do not edit manually; changes will be overwritten on next bootstrap run.
 # Put personal overrides in ~/.bashrc or a separate sourced file.
 
 alias docker=podman
 export KIND_EXPERIMENTAL_PROVIDER=podman
+export QT_QPA_PLATFORMTHEME=kde
+export QT_STYLE_OVERRIDE=Breeze
 ENVEOF
+
+# Base Fedora may have ksshaskpass from KDE — suppress its SSH popup
+if [ "$SWAY_SPIN" = false ]; then
+    echo "unset SSH_ASKPASS" >> "$_env_tmp"
+fi
 
 _env_file="$HOME/.config/shell/bootstrap-env.sh"
 if ! cmp -s "$_env_tmp" "$_env_file" 2>/dev/null; then
@@ -239,6 +292,25 @@ fi
 info "Setting default keyboard layout to FR..."
 sudo localectl set-x11-keymap fr
 ok "Keyboard layout set to FR"
+
+# ---------------------------------------------------------------------------
+# 11. SDDM greeter — solid dark background (matches sway's #222222)
+# ---------------------------------------------------------------------------
+# The Breeze-Fedora theme reads theme.conf.user for per-site overrides.
+# This replaces the default Fedora wallpaper with a flat color to match Sway.
+
+SDDM_THEME_DIR="/usr/share/sddm/themes/01-breeze-fedora"
+if [ -d "$SDDM_THEME_DIR" ]; then
+    info "Configuring SDDM dark background..."
+    cat <<'SDDM' | sudo tee "$SDDM_THEME_DIR/theme.conf.user" > /dev/null
+[General]
+type=color
+color=#222222
+SDDM
+    ok "SDDM background set to #222222"
+else
+    warn "SDDM theme dir not found ($SDDM_THEME_DIR) — skipping greeter background"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary

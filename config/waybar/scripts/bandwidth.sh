@@ -36,20 +36,24 @@ fi
 
 echo "$RX $TX $NOW" > "$STATE"
 
+KB=1024
+MB=$(( 1024 * KB ))
+GB=$(( 1024 * MB ))
+
 # Pure-bash integer arithmetic for KB/s and MB/s (common cases).
 # bc is only used for GB/s (rare), and only when available.
 fmt() {
   local b=$1
-  if (( b >= 1073741824 )); then
+  if (( b >= GB )); then
     if command -v bc &>/dev/null; then
-      printf "%.1fGB/s" "$(echo "scale=1; $b/1073741824" | bc)"
+      printf "%.1fGB/s" "$(echo "scale=1; $b/$GB" | bc)"
     else
-      printf "%d.%dGB/s" "$(( b / 1073741824 ))" "$(( (b % 1073741824) * 10 / 1073741824 ))"
+      printf "%d.%dGB/s" "$(( b / GB ))" "$(( (b % GB) * 10 / GB ))"
     fi
-  elif (( b >= 1048576 )); then
-    printf "%d.%dMB/s" "$(( b / 1048576 ))" "$(( (b % 1048576) * 10 / 1048576 ))"
+  elif (( b >= MB )); then
+    printf "%d.%dMB/s" "$(( b / MB ))" "$(( (b % MB) * 10 / MB ))"
   else
-    printf "%dKB/s" "$(( b / 1024 ))"
+    printf "%dKB/s" "$(( b / KB ))"
   fi
 }
 

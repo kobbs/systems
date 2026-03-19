@@ -9,13 +9,13 @@
 
 set -euo pipefail
 
-# shellcheck source=lib/common.sh
+# shellcheck source=scripts/lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
 
 # Version pins — override via environment if needed
 PROTON_RPM="${PROTON_RPM:-protonvpn-stable-release-1.0.1-2.noarch.rpm}"
 
-init_logging "apps-install"
+init_logging "apps"
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
@@ -84,9 +84,9 @@ ok "EasyEffects installed"
 
 info "Installing Mesa/AMD acceleration packages..."
 sudo dnf install -y \
-    mesa-vulkan-drivers \
     libva-utils \
-    mesa-vdpau-drivers-freeworld
+    mesa-vdpau-drivers-freeworld \
+    mesa-vulkan-drivers
 ok "Mesa acceleration packages installed"
 
 # ---------------------------------------------------------------------------
@@ -118,35 +118,39 @@ ok "Nextcloud client installed"
 # rendering failures. NetworkManager integration requires native install.
 # Launched manually as a tray app; no autostart needed.
 
-info "Installing ProtonVPN..."
-require_cmd curl "sudo dnf install -y curl"
-FEDORA_VER=$(rpm -E %fedora)
-PROTON_BASE="https://repo.protonvpn.com"
-
-# ProtonVPN may not yet publish a repo for the current Fedora version.
-# Walk backwards until we find one that exists (try up to 3 versions back).
-# Each candidate URL is retried up to 3 times with a 2-second back-off.
-PROTON_URL=""
-for ver in "$FEDORA_VER" $(( FEDORA_VER - 1 )) $(( FEDORA_VER - 2 )); do
-    candidate="${PROTON_BASE}/fedora-${ver}-stable/protonvpn-stable-release/${PROTON_RPM}"
-    for attempt in 1 2 3; do
-        if curl -sf --head "$candidate" -o /dev/null; then
-            PROTON_URL="$candidate"
-            break 2
-        fi
-        (( attempt < 3 )) && sleep 2
-    done
-    [ "$ver" -ne "$FEDORA_VER" ] && warn "ProtonVPN repo not found for Fedora ${FEDORA_VER}, trying Fedora ${ver}"
-done
-
-if [ -z "$PROTON_URL" ]; then
-    warn "Could not find a ProtonVPN repo RPM for Fedora ${FEDORA_VER} or the two previous releases. Skipping."
+if rpm -q proton-vpn-gtk-app &>/dev/null; then
+    ok "ProtonVPN already installed (skipped)"
 else
-    [ "$(rpm -E %fedora)" -ne "$FEDORA_VER" ] && \
-        warn "Using ProtonVPN repo from a different Fedora release: $PROTON_URL"
-    sudo dnf install -y "$PROTON_URL"
-    sudo dnf install -y proton-vpn-gtk-app
-    ok "ProtonVPN installed"
+    info "Installing ProtonVPN..."
+    require_cmd curl "sudo dnf install -y curl"
+    FEDORA_VER=$(rpm -E %fedora)
+    PROTON_BASE="https://repo.protonvpn.com"
+
+    # ProtonVPN may not yet publish a repo for the current Fedora version.
+    # Walk backwards until we find one that exists (try up to 3 versions back).
+    # Each candidate URL is retried up to 3 times with a 2-second back-off.
+    PROTON_URL=""
+    for ver in "$FEDORA_VER" $(( FEDORA_VER - 1 )) $(( FEDORA_VER - 2 )); do
+        candidate="${PROTON_BASE}/fedora-${ver}-stable/protonvpn-stable-release/${PROTON_RPM}"
+        for attempt in 1 2 3; do
+            if curl -sf --head --connect-timeout 5 "$candidate" -o /dev/null; then
+                PROTON_URL="$candidate"
+                break 2
+            fi
+            (( attempt < 3 )) && sleep 2
+        done
+        [ "$ver" -ne "$FEDORA_VER" ] && warn "ProtonVPN repo not found for Fedora ${FEDORA_VER}, trying Fedora ${ver}"
+    done
+
+    if [ -z "$PROTON_URL" ]; then
+        warn "Could not find a ProtonVPN repo RPM for Fedora ${FEDORA_VER} or the two previous releases. Skipping."
+    else
+        [ "$(rpm -E %fedora)" -ne "$FEDORA_VER" ] && \
+            warn "Using ProtonVPN repo from a different Fedora release: $PROTON_URL"
+        sudo dnf install -y "$PROTON_URL"
+        sudo dnf install -y proton-vpn-gtk-app
+        ok "ProtonVPN installed"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -166,11 +170,11 @@ ok "KeePassXC installed"
 
 info "Installing KVM / virt-manager..."
 sudo dnf install -y \
-    virt-manager \
-    qemu-kvm \
     libvirt \
     libvirt-daemon-config-network \
+    qemu-kvm \
     virt-install \
+    virt-manager \
     virt-viewer
 sudo usermod -aG libvirt "$(id -un)"
 sudo systemctl enable --now libvirtd
