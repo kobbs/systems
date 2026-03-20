@@ -428,33 +428,45 @@ if [ -d "$SDDM_THEME_DIR" ]; then
 
     if [ "$SWAY_SPIN" = true ]; then
         # The sway-fedora theme reads config.background as an image path —
-        # it doesn't support type=color. Generate a 1x1 PPM image (#222222).
-        _ppm_tmp="$(mktemp)"
-        trap 'rm -f "$_ppm_tmp"' EXIT
-        printf 'P6\n1 1\n255\n\x22\x22\x22' > "$_ppm_tmp"
+        # it doesn't support type=color. Generate a solid #222222 PNG.
+        _png_file="$SDDM_THEME_DIR/background-dark.png"
+        _png_tmp="$(mktemp)"
+        trap 'rm -f "$_png_tmp"' EXIT
+        python3 -c "
+import struct, zlib, sys
+def chunk(t, d):
+    c = t + d
+    return struct.pack('>I', len(d)) + c + struct.pack('>I', zlib.crc32(c) & 0xFFFFFFFF)
+W, H = 64, 64
+sig = b'\x89PNG\r\n\x1a\n'
+ihdr = chunk(b'IHDR', struct.pack('>IIBBBBB', W, H, 8, 2, 0, 0, 0))
+raw = (b'\x00' + b'\x22\x22\x22' * W) * H
+idat = chunk(b'IDAT', zlib.compress(raw))
+iend = chunk(b'IEND', b'')
+sys.stdout.buffer.write(sig + ihdr + idat + iend)
+" > "$_png_tmp"
 
-        _ppm_file="$SDDM_THEME_DIR/background-dark.ppm"
-        if ! sudo cmp -s "$_ppm_tmp" "$_ppm_file" 2>/dev/null; then
-            sudo cp "$_ppm_tmp" "$_ppm_file"
-            sudo chmod 644 "$_ppm_file"
+        if ! sudo cmp -s "$_png_tmp" "$_png_file" 2>/dev/null; then
+            sudo cp "$_png_tmp" "$_png_file"
         fi
-        rm -f "$_ppm_tmp"
+        sudo chmod 644 "$_png_file"
+        rm -f "$_png_tmp"
         trap - EXIT
 
         _conf_tmp="$(mktemp)"
         trap 'rm -f "$_conf_tmp"' EXIT
         cat <<SDDM > "$_conf_tmp"
 [General]
-background=$_ppm_file
+background=$_png_file
 SDDM
 
         if ! sudo cmp -s "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user" 2>/dev/null; then
             sudo cp "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user"
-            sudo chmod 644 "$SDDM_THEME_DIR/theme.conf.user"
             ok "SDDM background set to dark image ($SDDM_THEME_DIR)"
         else
             ok "SDDM background already up to date"
         fi
+        sudo chmod 644 "$SDDM_THEME_DIR/theme.conf.user"
         rm -f "$_conf_tmp"
         trap - EXIT
     else
@@ -469,11 +481,11 @@ SDDM
 
         if ! sudo cmp -s "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user" 2>/dev/null; then
             sudo cp "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user"
-            sudo chmod 644 "$SDDM_THEME_DIR/theme.conf.user"
             ok "SDDM background set to #222222 ($SDDM_THEME_DIR)"
         else
             ok "SDDM background already up to date"
         fi
+        sudo chmod 644 "$SDDM_THEME_DIR/theme.conf.user"
         rm -f "$_conf_tmp"
         trap - EXIT
     fi
