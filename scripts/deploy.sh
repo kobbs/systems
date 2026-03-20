@@ -106,6 +106,20 @@ grep -qF "prompt.sh" "$HOME/.bashrc" 2>/dev/null \
 ok "Bash prompt configured (takes effect in new shells)"
 
 # ---------------------------------------------------------------------------
+# Swaylock
+# ---------------------------------------------------------------------------
+info "Deploying swaylock config..."
+mkdir -p "$HOME/.config/swaylock"
+link_file "$CONFIG_DIR/swaylock/config" "$HOME/.config/swaylock/config"
+
+# ---------------------------------------------------------------------------
+# Dunst
+# ---------------------------------------------------------------------------
+info "Deploying dunst config..."
+mkdir -p "$HOME/.config/dunst"
+link_file "$CONFIG_DIR/dunst/dunstrc" "$HOME/.config/dunst/dunstrc"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""

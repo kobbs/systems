@@ -65,7 +65,6 @@
   },
 
   "network#wifi": {
-    "interface": "wlp11s0",
     "format": "\uf1eb {essid} {signaldBm}dBm",
     "format-disconnected": " Down",
     "tooltip-format": "{ifname} — {ipaddr} via {gwaddr}",

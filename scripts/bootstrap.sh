@@ -199,7 +199,7 @@ ok "RPM Fusion + multimedia configured"
 
 info "Ensuring Flathub is configured..."
 sudo dnf install -y flatpak
-flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 ok "Flathub ready"
 
 # ---------------------------------------------------------------------------
@@ -252,6 +252,8 @@ else
         xdg-desktop-portal-wlr
     ok "Sway stack installed"
 fi
+
+sudo systemctl enable --now bluetooth
 
 # ---------------------------------------------------------------------------
 # 5. DevOps Stack
