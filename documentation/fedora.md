@@ -114,6 +114,7 @@ enabled=1
 gpgcheck=1
 gpgkey=https://pkgs.k8s.io/core:/stable:/v1.34/rpm/repodata/repomd.xml.key
 EOF
+sudo chmod 644 /etc/yum.repos.d/kubernetes.repo
 ```
 
 ## GRUB & kernel parameters

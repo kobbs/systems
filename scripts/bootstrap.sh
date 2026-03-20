@@ -274,6 +274,7 @@ enabled=1
 gpgcheck=1
 gpgkey=https://pkgs.k8s.io/core:/stable:/${K8S_VERSION}/rpm/repodata/repomd.xml.key
 KREPO
+    sudo chmod 644 /etc/yum.repos.d/kubernetes.repo
 fi
 
 sudo dnf install -y \
@@ -327,6 +328,7 @@ enabled=1
 gpgcheck=1
 gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
 ROCM
+            sudo chmod 644 /etc/yum.repos.d/amdgpu.repo /etc/yum.repos.d/rocm.repo
         fi
 
         sudo dnf install -y \
