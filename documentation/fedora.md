@@ -292,3 +292,56 @@ bluetoothctl disconnect <MAC>                   # disconnect
 bluetoothctl remove <MAC>                       # unpair and forget a device
 bluetoothctl info <MAC>                         # show device details
 ```
+
+## Firewall (firewalld)
+
+`firewalld` is pre-installed on Fedora. The bootstrap script enables it with the default `FedoraWorkstation` zone, which already allows SSH and mDNS.
+
+```bash
+sudo systemctl enable --now firewalld
+```
+
+### Zone and status
+
+```bash
+sudo firewall-cmd --state                       # running / not running
+sudo firewall-cmd --get-default-zone             # show default zone (e.g. FedoraWorkstation)
+sudo firewall-cmd --get-active-zones             # zones with assigned interfaces
+sudo firewall-cmd --list-all                     # full config of the default zone
+sudo firewall-cmd --zone=public --list-all       # full config of a specific zone
+```
+
+### Allow services and ports
+
+```bash
+sudo firewall-cmd --add-service=cockpit --permanent   # open a well-known service
+sudo firewall-cmd --add-port=8080/tcp --permanent      # open an arbitrary port
+sudo firewall-cmd --reload                             # apply permanent changes
+```
+
+### Remove rules
+
+```bash
+sudo firewall-cmd --remove-service=cockpit --permanent
+sudo firewall-cmd --remove-port=8080/tcp --permanent
+sudo firewall-cmd --reload
+```
+
+### List available services
+
+```bash
+firewall-cmd --get-services                     # all known service definitions
+firewall-cmd --info-service=ssh                 # what ports a service opens
+```
+
+### Common services
+
+| Service | Port | Notes |
+|---|---|---|
+| `ssh` | 22/tcp | Included in FedoraWorkstation by default |
+| `mdns` | 5353/udp | Included in FedoraWorkstation by default |
+| `cockpit` | 9090/tcp | Web-based system management dashboard |
+| `http` / `https` | 80, 443/tcp | Web server |
+| `libvirt` | — | Virtual network bridge rules for KVM |
+
+> **Note:** `--permanent` writes to disk but doesn't take effect until `--reload`. Without `--permanent`, changes apply immediately but are lost on reboot. To do both at once, run the command twice (once with `--permanent`, once without) or just add `--permanent` and `--reload`.

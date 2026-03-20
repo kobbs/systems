@@ -120,6 +120,18 @@ mkdir -p "$HOME/.config/dunst"
 link_file "$CONFIG_DIR/dunst/dunstrc" "$HOME/.config/dunst/dunstrc"
 
 # ---------------------------------------------------------------------------
+# Kitty
+# ---------------------------------------------------------------------------
+info "Deploying kitty config..."
+link_file "$CONFIG_DIR/kitty/kitty.conf" "$HOME/.config/kitty/kitty.conf"
+
+# ---------------------------------------------------------------------------
+# Tmux
+# ---------------------------------------------------------------------------
+info "Deploying tmux config..."
+link_file "$CONFIG_DIR/tmux/tmux.conf" "$HOME/.config/tmux/tmux.conf"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""

@@ -255,6 +255,11 @@ fi
 
 sudo systemctl enable --now bluetooth
 
+# --- Firewall ---
+info "Enabling firewall..."
+sudo systemctl enable --now firewalld
+ok "firewalld enabled (default zone: $(sudo firewall-cmd --get-default-zone))"
+
 # ---------------------------------------------------------------------------
 # 5. DevOps Stack
 # ---------------------------------------------------------------------------
