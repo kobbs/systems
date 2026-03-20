@@ -220,6 +220,8 @@ SWAY_COMMON_PKGS=(
     qt5ct
     qt6ct
     vulkan-tools
+    bat
+    vim
 )
 
 if [ "$SWAY_SPIN" = true ]; then
