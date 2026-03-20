@@ -10,14 +10,63 @@
 # Usage:
 #   ./scripts/bootstrap.sh              # auto-detects Sway Spin vs base Fedora
 #   ./scripts/bootstrap.sh --sway-spin  # force Sway Spin mode (skip core Sway packages)
+#   ./scripts/bootstrap.sh --rocm       # also install ROCm stack (requires discrete AMD GPU)
 
 set -euo pipefail
 
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
 
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Bootstrap a Fedora system with Sway/Wayland, DevOps tooling, and optionally ROCm.
+
+Options:
+  --sway-spin   Force Sway Spin mode (skip core Sway packages already in the spin)
+  --base        Force base Fedora mode (install full Sway stack)
+  --rocm        Install ROCm stack for AMD GPU compute (requires discrete AMD GPU)
+  -h, --help    Show this help message and exit
+
+Environment variables:
+  K8S_VERSION   Kubernetes repo channel (default: v1.34)
+
+Examples:
+  $(basename "$0")                  Auto-detect mode, skip ROCm
+  $(basename "$0") --sway-spin      Sway Spin mode
+  $(basename "$0") --rocm           Auto-detect mode + install ROCm
+  $(basename "$0") --base --rocm    Base Fedora + ROCm
+EOF
+    exit 0
+}
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
 # Version pins — override via environment if needed
-K8S_VERSION="${K8S_VERSION:-v1.32}"   # Kubernetes repo channel
+K8S_VERSION="${K8S_VERSION:-v1.34}"   # Kubernetes repo channel
+
+INSTALL_ROCM=false
+_force_mode=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --sway-spin) _force_mode="sway-spin"; shift ;;
+        --base)      _force_mode="base";      shift ;;
+        --rocm)      INSTALL_ROCM=true;       shift ;;
+        -h|--help)   usage ;;
+        *)
+            echo "ERROR: Unknown option: $1" >&2
+            echo "Run '$(basename "$0") --help' for usage." >&2
+            exit 1
+            ;;
+    esac
+done
 
 # ---------------------------------------------------------------------------
 # Mode detection: Sway Spin ships sway pre-installed; base Fedora does not.
@@ -28,9 +77,9 @@ K8S_VERSION="${K8S_VERSION:-v1.32}"   # Kubernetes repo channel
 # ---------------------------------------------------------------------------
 _MODE_FILE="$HOME/.config/shell/.bootstrap-mode"
 SWAY_SPIN=false
-if [[ "${1:-}" == "--sway-spin" ]]; then
+if [[ "$_force_mode" == "sway-spin" ]]; then
     SWAY_SPIN=true
-elif [[ "${1:-}" == "--base" ]]; then
+elif [[ "$_force_mode" == "base" ]]; then
     SWAY_SPIN=false
 elif [[ -f "$_MODE_FILE" ]] && grep -qxE 'true|false' "$_MODE_FILE"; then
     # Re-run: use the mode from the first run
@@ -200,24 +249,52 @@ ok "DevOps stack installed"
 # ---------------------------------------------------------------------------
 # 6. ROCm / AI Workloads
 # ---------------------------------------------------------------------------
-# NOTE: ROCm setup is intentionally excluded from this bootstrap.
-# Only the home desktop has a capable discrete AMD GPU.
-# ROCm on Fedora deserves its own dedicated setup:
-#   - AMD's own RPM repo vs Fedora-packaged ROCm
-#   - Confirm GPU is in the ROCm support matrix (RDNA2+/gfx1030+)
-#   - Choose inference runtime (ollama, llama.cpp+hipBLAS, vllm, etc.)
-#   - PyTorch ROCm if doing any training/fine-tuning
-#   - Potential kernel module (amdgpu) config for large VRAM allocations
-#
-# For now, just ensure the user is in the right groups if a discrete GPU
-# is present, so the device nodes are accessible when ROCm is installed later.
+# GPU group membership is always configured when a discrete AMD GPU is present.
+# The full ROCm stack (runtime, HIP, libraries) is installed only with --rocm.
 
 if [ "$HAS_DISCRETE_AMD_GPU" = true ]; then
-    info "Discrete AMD GPU found — adding user to render/video groups (for future ROCm)"
+    info "Discrete AMD GPU found — adding user to render/video groups"
     sudo usermod -aG video,render "$(id -un)"
     ok "GPU groups configured"
 else
     info "No discrete AMD GPU detected — skipping GPU group setup"
+fi
+
+if [ "$INSTALL_ROCM" = true ]; then
+    if [ "$HAS_DISCRETE_AMD_GPU" = false ]; then
+        warn "--rocm requested but no discrete AMD GPU detected — skipping ROCm install"
+    else
+        info "Installing ROCm stack..."
+
+        # AMD ROCm repo (provides rocm-hip-runtime, rocminfo, etc.)
+        if ! dnf repolist --enabled | grep -q amdgpu; then
+            sudo tee /etc/yum.repos.d/amdgpu.repo > /dev/null <<AMDGPU
+[amdgpu]
+name=amdgpu
+baseurl=https://repo.radeon.com/amdgpu/latest/rhel/\$releasever/main/x86_64/
+enabled=1
+gpgcheck=1
+gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
+AMDGPU
+            sudo tee /etc/yum.repos.d/rocm.repo > /dev/null <<ROCM
+[rocm]
+name=ROCm
+baseurl=https://repo.radeon.com/rocm/rhel9/\$releasever/main
+enabled=1
+gpgcheck=1
+gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
+ROCM
+        fi
+
+        sudo dnf install -y \
+            rocm-hip-runtime \
+            rocm-opencl-runtime \
+            rocm-smi-lib \
+            rocminfo
+
+        ok "ROCm stack installed"
+        info "Verify with: rocminfo | head -30"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -326,7 +403,7 @@ echo "Next steps:"
 echo "  1. REBOOT to apply group changes and keyboard layout"
 echo "  2. Register Yubikey:  pamu2fcfg > ~/.config/Yubico/u2f_keys"
 echo "  3. Phase 2: dotfile sync + user configs (sway, waybar, etc.)"
-if [ "$HAS_DISCRETE_AMD_GPU" = true ]; then
-    echo "  4. ROCm setup (dedicated process — home desktop only)"
+if [ "$HAS_DISCRETE_AMD_GPU" = true ] && [ "$INSTALL_ROCM" = false ]; then
+    echo "  4. ROCm: re-run with --rocm to install AMD compute stack"
 fi
 echo ""
