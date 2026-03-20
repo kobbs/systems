@@ -219,6 +219,8 @@ SWAY_COMMON_PKGS=(
     pavucontrol
     qt5ct
     qt6ct
+    tuned
+    tuned-ppd
     vulkan-tools
     bat
     vim
@@ -254,6 +256,7 @@ else
 fi
 
 sudo systemctl enable --now bluetooth
+sudo systemctl enable --now tuned
 
 # --- Firewall ---
 info "Enabling firewall..."

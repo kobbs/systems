@@ -155,4 +155,4 @@ sudo dnf remove nodejs npm
 
 ## GPU control tools
 
-**LACT** (`ilyaz/LACT` COPR) is the recommended GPU control tool for RDNA2+. Install manually if needed.
+**LACT** ([GitHub Releases](https://github.com/ilya-zlobintsev/LACT/releases)) is the recommended GPU control tool for RDNA2+. Install the RPM manually if needed.

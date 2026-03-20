@@ -432,9 +432,9 @@ podman run --rm -it \
 GUI/CLI tool for GPU overclocking, fan curves, and monitoring. Alternative to `rocm-smi` with a graphical interface.
 
 ```bash
-# Install from COPR or build from source:
-sudo dnf copr enable ilyaz/LACT -y
-sudo dnf install -y lact
+# Download the latest RPM from GitHub Releases:
+# https://github.com/ilya-zlobintsev/LACT/releases
+sudo dnf install -y ./lact-<version>.fedora-<ver>.x86_64.rpm
 
 # Start the daemon:
 sudo systemctl enable --now lactd
