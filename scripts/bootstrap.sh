@@ -27,19 +27,21 @@ Usage: $(basename "$0") [OPTIONS]
 Bootstrap a Fedora system with Sway/Wayland, DevOps tooling, and optionally ROCm.
 
 Options:
-  --sway-spin   Force Sway Spin mode (skip core Sway packages already in the spin)
-  --base        Force base Fedora mode (install full Sway stack)
-  --rocm        Install ROCm stack for AMD GPU compute (requires discrete AMD GPU)
-  -h, --help    Show this help message and exit
+  --sway-spin       Force Sway Spin mode (skip core Sway packages already in the spin)
+  --base            Force base Fedora mode (install full Sway stack)
+  --rocm            Install ROCm stack for AMD GPU compute (requires discrete AMD GPU)
+  --hostname=NAME   Set a custom hostname (persisted across re-runs)
+  -h, --help        Show this help message and exit
 
 Environment variables:
   K8S_VERSION   Kubernetes repo channel (default: v1.34)
 
 Examples:
-  $(basename "$0")                  Auto-detect mode, skip ROCm
-  $(basename "$0") --sway-spin      Sway Spin mode
-  $(basename "$0") --rocm           Auto-detect mode + install ROCm
-  $(basename "$0") --base --rocm    Base Fedora + ROCm
+  $(basename "$0")                        Auto-detect mode, skip ROCm
+  $(basename "$0") --sway-spin            Sway Spin mode
+  $(basename "$0") --rocm                 Auto-detect mode + install ROCm
+  $(basename "$0") --base --rocm          Base Fedora + ROCm
+  $(basename "$0") --hostname=my-box      Set custom hostname
 EOF
     exit 0
 }
@@ -53,13 +55,15 @@ K8S_VERSION="${K8S_VERSION:-v1.34}"   # Kubernetes repo channel
 
 INSTALL_ROCM=false
 _force_mode=""
+_force_hostname=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --sway-spin) _force_mode="sway-spin"; shift ;;
-        --base)      _force_mode="base";      shift ;;
-        --rocm)      INSTALL_ROCM=true;       shift ;;
-        -h|--help)   usage ;;
+        --sway-spin)    _force_mode="sway-spin"; shift ;;
+        --base)         _force_mode="base";      shift ;;
+        --rocm)         INSTALL_ROCM=true;       shift ;;
+        --hostname=*)   _force_hostname="${1#*=}"; shift ;;
+        -h|--help)      usage ;;
         *)
             echo "ERROR: Unknown option: $1" >&2
             echo "Run '$(basename "$0") --help' for usage." >&2
@@ -108,14 +112,50 @@ preflight_checks
 # Machine detection (expand as needed)
 # ---------------------------------------------------------------------------
 
-HOSTNAME=$(hostname -s)
 HAS_DISCRETE_AMD_GPU=false
 
 if lspci 2>/dev/null | grep -qi 'VGA.*AMD.*Navi\|VGA.*AMD.*RDNA'; then
     HAS_DISCRETE_AMD_GPU=true
 fi
 
-info "Host: $HOSTNAME | Discrete AMD GPU detected: $HAS_DISCRETE_AMD_GPU"
+# ---------------------------------------------------------------------------
+# Hostname — auto-detect or use override
+# ---------------------------------------------------------------------------
+_HOSTNAME_OVERRIDE="$HOME/.config/shell/.hostname-override"
+
+if [[ -n "$_force_hostname" ]]; then
+    # CLI flag: persist override and apply
+    mkdir -p "$(dirname "$_HOSTNAME_OVERRIDE")"
+    echo "$_force_hostname" > "$_HOSTNAME_OVERRIDE"
+    _target_hostname="$_force_hostname"
+elif [[ -f "$_HOSTNAME_OVERRIDE" ]] && [[ -s "$_HOSTNAME_OVERRIDE" ]]; then
+    _target_hostname=$(cat "$_HOSTNAME_OVERRIDE")
+else
+    # Auto-detect form factor
+    _virt=$(systemd-detect-virt 2>/dev/null || echo "none")
+    if [[ "$_virt" != "none" ]]; then
+        _form="vm"
+    else
+        _chassis=$(cat /sys/devices/virtual/dmi/id/chassis_type 2>/dev/null || echo "0")
+        case "$_chassis" in
+            3|4|5|6|7) _form="desktop" ;;
+            8|9|10|14) _form="laptop"  ;;
+            *)         _form="pc"      ;;
+        esac
+    fi
+    # Read Fedora variant
+    _variant=$(. /etc/os-release && echo "${VARIANT_ID:-linux}")
+    _target_hostname="${_form}-${_variant}"
+fi
+
+if [[ "$(hostname -s)" != "$_target_hostname" ]]; then
+    sudo hostnamectl set-hostname "$_target_hostname"
+    ok "Hostname set to $_target_hostname"
+else
+    ok "Hostname already set to $_target_hostname"
+fi
+
+info "Host: $_target_hostname | Discrete AMD GPU detected: $HAS_DISCRETE_AMD_GPU"
 
 # ---------------------------------------------------------------------------
 # 1. System Update
@@ -396,6 +436,7 @@ if [ -d "$SDDM_THEME_DIR" ]; then
         _ppm_file="$SDDM_THEME_DIR/background-dark.ppm"
         if ! sudo cmp -s "$_ppm_tmp" "$_ppm_file" 2>/dev/null; then
             sudo cp "$_ppm_tmp" "$_ppm_file"
+            sudo chmod 644 "$_ppm_file"
         fi
         rm -f "$_ppm_tmp"
         trap - EXIT
@@ -409,6 +450,7 @@ SDDM
 
         if ! sudo cmp -s "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user" 2>/dev/null; then
             sudo cp "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user"
+            sudo chmod 644 "$SDDM_THEME_DIR/theme.conf.user"
             ok "SDDM background set to dark image ($SDDM_THEME_DIR)"
         else
             ok "SDDM background already up to date"
@@ -427,6 +469,7 @@ SDDM
 
         if ! sudo cmp -s "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user" 2>/dev/null; then
             sudo cp "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user"
+            sudo chmod 644 "$SDDM_THEME_DIR/theme.conf.user"
             ok "SDDM background set to #222222 ($SDDM_THEME_DIR)"
         else
             ok "SDDM background already up to date"
