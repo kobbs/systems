@@ -26,8 +26,7 @@ exec_always {
 exec kanshi
 exec /usr/libexec/polkit-mate-authentication-agent-1
 exec waybar
-exec mako --default-timeout 5000
-#exec corectrl  # AMD GPU tool — install manually if needed
+exec dunst
 exec bluetoothctl power on
 
 # -- mods

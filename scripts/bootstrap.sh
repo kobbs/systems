@@ -173,6 +173,7 @@ SWAY_COMMON_PKGS=(
     google-roboto-mono-fonts
     kitty
     libnotify
+    mate-polkit
     mesa-demos
     network-manager-applet
     pavucontrol
@@ -185,6 +186,7 @@ if [ "$SWAY_SPIN" = true ]; then
     # Sway Spin ships: sway, waybar, foot, mako, grim, slurp, wl-clipboard,
     # swaylock, swayidle, swaybg, kanshi, xdg-desktop-portal-wlr, polkit-gnome.
     # Only install what's missing from the spin.
+    # mate-polkit (in SWAY_COMMON_PKGS) replaces polkit-gnome for USB/device auth prompts.
     info "Installing Sway extras (beyond Sway Spin defaults)..."
     sudo dnf install -y "${SWAY_COMMON_PKGS[@]}"
     ok "Sway extras installed"
@@ -198,7 +200,6 @@ else
         grim \
         kanshi \
         mako \
-        mate-polkit \
         slurp \
         sway \
         swaybg \
@@ -217,12 +218,12 @@ fi
 info "Installing DevOps tooling..."
 
 # HashiCorp repo (Terraform, Packer, etc.)
-if ! dnf repolist --enabled | grep -q hashicorp; then
+if [ ! -f /etc/yum.repos.d/hashicorp.repo ]; then
     sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
 fi
 
 # Kubernetes repo (kubectl)
-if ! dnf repolist --enabled | grep -q kubernetes; then
+if [ ! -f /etc/yum.repos.d/kubernetes.repo ]; then
     cat <<KREPO | sudo tee /etc/yum.repos.d/kubernetes.repo > /dev/null
 [kubernetes]
 name=Kubernetes
@@ -267,7 +268,7 @@ if [ "$INSTALL_ROCM" = true ]; then
         info "Installing ROCm stack..."
 
         # AMD ROCm repo (provides rocm-hip-runtime, rocminfo, etc.)
-        if ! dnf repolist --enabled | grep -q amdgpu; then
+        if [ ! -f /etc/yum.repos.d/amdgpu.repo ]; then
             sudo tee /etc/yum.repos.d/amdgpu.repo > /dev/null <<AMDGPU
 [amdgpu]
 name=amdgpu
@@ -373,18 +374,66 @@ ok "Keyboard layout set to FR"
 # ---------------------------------------------------------------------------
 # 11. SDDM greeter — solid dark background (matches sway's #222222)
 # ---------------------------------------------------------------------------
-# The Breeze-Fedora theme reads theme.conf.user for per-site overrides.
-# This replaces the default Fedora wallpaper with a flat color to match Sway.
+# Both SDDM themes read theme.conf.user for per-site overrides.
+# Breeze (base Fedora) supports type=color; sway-fedora needs an image file.
 
-SDDM_THEME_DIR="/usr/share/sddm/themes/01-breeze-fedora"
+if [ "$SWAY_SPIN" = true ]; then
+    SDDM_THEME_DIR="/usr/share/sddm/themes/03-sway-fedora"
+else
+    SDDM_THEME_DIR="/usr/share/sddm/themes/01-breeze-fedora"
+fi
+
 if [ -d "$SDDM_THEME_DIR" ]; then
     info "Configuring SDDM dark background..."
-    cat <<'SDDM' | sudo tee "$SDDM_THEME_DIR/theme.conf.user" > /dev/null
+
+    if [ "$SWAY_SPIN" = true ]; then
+        # The sway-fedora theme reads config.background as an image path —
+        # it doesn't support type=color. Generate a 1x1 PPM image (#222222).
+        _ppm_tmp="$(mktemp)"
+        trap 'rm -f "$_ppm_tmp"' EXIT
+        printf 'P6\n1 1\n255\n\x22\x22\x22' > "$_ppm_tmp"
+
+        _ppm_file="$SDDM_THEME_DIR/background-dark.ppm"
+        if ! sudo cmp -s "$_ppm_tmp" "$_ppm_file" 2>/dev/null; then
+            sudo cp "$_ppm_tmp" "$_ppm_file"
+        fi
+        rm -f "$_ppm_tmp"
+        trap - EXIT
+
+        _conf_tmp="$(mktemp)"
+        trap 'rm -f "$_conf_tmp"' EXIT
+        cat <<SDDM > "$_conf_tmp"
+[General]
+background=$_ppm_file
+SDDM
+
+        if ! sudo cmp -s "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user" 2>/dev/null; then
+            sudo cp "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user"
+            ok "SDDM background set to dark image ($SDDM_THEME_DIR)"
+        else
+            ok "SDDM background already up to date"
+        fi
+        rm -f "$_conf_tmp"
+        trap - EXIT
+    else
+        # Breeze theme supports type=color natively
+        _conf_tmp="$(mktemp)"
+        trap 'rm -f "$_conf_tmp"' EXIT
+        cat <<'SDDM' > "$_conf_tmp"
 [General]
 type=color
 color=#222222
 SDDM
-    ok "SDDM background set to #222222"
+
+        if ! sudo cmp -s "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user" 2>/dev/null; then
+            sudo cp "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user"
+            ok "SDDM background set to #222222 ($SDDM_THEME_DIR)"
+        else
+            ok "SDDM background already up to date"
+        fi
+        rm -f "$_conf_tmp"
+        trap - EXIT
+    fi
 else
     warn "SDDM theme dir not found ($SDDM_THEME_DIR) — skipping greeter background"
 fi

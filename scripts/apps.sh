@@ -15,6 +15,46 @@ source "$(dirname "$0")/lib/common.sh"
 # Version pins — override via environment if needed
 PROTON_RPM="${PROTON_RPM:-protonvpn-stable-release-1.0.1-2.noarch.rpm}"
 
+# ---------------------------------------------------------------------------
+# Usage / argument parsing
+# ---------------------------------------------------------------------------
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Install user-facing applications (Phase 3).
+
+Options:
+  --gtk-apps    Install GTK desktop utilities (Thunar, Evince, GNOME Calculator, …)
+  --qt-apps     Install Qt/KDE desktop utilities (Dolphin, Okular, KCalc, …)
+  -h, --help    Show this help message and exit
+
+Flags --gtk-apps and --qt-apps are mutually exclusive.
+If neither is passed, no desktop utilities are installed (backward-compatible).
+EOF
+    exit 0
+}
+
+DESKTOP_TOOLKIT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --gtk-apps)
+            [[ -n "$DESKTOP_TOOLKIT" ]] && { echo "ERROR: --gtk-apps and --qt-apps are mutually exclusive." >&2; exit 1; }
+            DESKTOP_TOOLKIT="gtk"; shift ;;
+        --qt-apps)
+            [[ -n "$DESKTOP_TOOLKIT" ]] && { echo "ERROR: --gtk-apps and --qt-apps are mutually exclusive." >&2; exit 1; }
+            DESKTOP_TOOLKIT="qt"; shift ;;
+        -h|--help)  usage ;;
+        *)
+            echo "ERROR: Unknown option: $1" >&2
+            echo "Run '$(basename "$0") --help' for usage." >&2
+            exit 1
+            ;;
+    esac
+done
+
 init_logging "apps"
 
 # ---------------------------------------------------------------------------
@@ -53,7 +93,7 @@ else
 fi
 
 # Brave — official vendor RPM repo
-if ! dnf repolist --enabled | grep -q brave-browser; then
+if [[ ! -f /etc/yum.repos.d/brave-browser.repo ]]; then
     sudo dnf config-manager addrepo \
         --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
 fi
@@ -193,6 +233,34 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 10. Desktop Utilities (optional — requires --gtk-apps or --qt-apps)
+# ---------------------------------------------------------------------------
+
+if [[ -n "$DESKTOP_TOOLKIT" ]]; then
+    if [[ "$DESKTOP_TOOLKIT" == "gtk" ]]; then
+        info "Installing GTK desktop utilities..."
+        sudo dnf install -y \
+            celluloid \
+            evince \
+            file-roller \
+            gnome-calculator \
+            loupe \
+            thunar
+        ok "GTK desktop utilities installed"
+    else
+        info "Installing Qt/KDE desktop utilities..."
+        sudo dnf install -y \
+            ark \
+            dolphin \
+            gwenview \
+            haruna \
+            kcalc \
+            okular
+        ok "Qt/KDE desktop utilities installed"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
@@ -213,6 +281,13 @@ echo "  7. proton-vpn-gtk-app — launches"
 echo "  8. KeePassXC — browser plugin connects from Brave/Firefox"
 echo "  9. virt-manager — opens; virsh list --all works without sudo (re-login first)"
 echo " 10. podman run hello-world — succeeds"
+if [[ -n "$DESKTOP_TOOLKIT" ]]; then
+    if [[ "$DESKTOP_TOOLKIT" == "gtk" ]]; then
+        echo " 11. Desktop utils — thunar, evince, gnome-calculator, loupe, celluloid, file-roller"
+    else
+        echo " 11. Desktop utils — dolphin, okular, kcalc, gwenview, haruna, ark"
+    fi
+fi
 echo ""
 echo "NOTE: Log out and back in for libvirt group membership to take effect."
 echo ""
