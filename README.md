@@ -2,8 +2,7 @@
 
 Fedora workstation bootstrap and dotfiles.
 
-**Targets:** AMD GPU desktop, work laptop, personal laptop
-**Stack:** Fedora 41+, Sway/Wayland, Waybar, Kanshi
+**Stack:** Fedora 43, Sway/Wayland, Waybar, Kanshi
 
 ## Repo structure
 
@@ -16,14 +15,20 @@ scripts/             Automation (run these)
   lib/common.sh      Shared helpers (logging, preflight, accent colors)
 
 config/              Dotfiles (source of truth, deployed by scripts/dotfiles.sh)
-  sway/              Sway compositor config
+  sway/              Sway compositor
   waybar/            Waybar modules, styles, and scripts
   kanshi/            Per-machine display profiles
+  kitty/             Kitty terminal
+  tmux/              tmux
+  dunst/             Dunst notification daemon
+  swaylock/          Swaylock screen locker
+  sddm/             SDDM greeter theme
   gtk/               GTK 3/4 dark theme (single file, symlinked to both)
-  qt5ct/             Qt5 theme settings
-  qt6ct/             Qt6 theme settings
+  qt5ct/ qt6ct/      Qt theme settings
   kde/               KDE Frameworks color scheme (kdeglobals)
   bash/              Shell prompt
+
+documentation/       Reference cheatsheets (Sway, Fedora/DNF, ROCm, Claude Code)
 ```
 
 ---
@@ -57,10 +62,13 @@ In Sway Spin mode the script skips packages the spin already ships (sway, waybar
 - Sway/Wayland stack: sway, waybar, kanshi, swaylock, swayidle, mako, kitty, bemenu, grim, slurp, wl-clipboard, mate-polkit, pavucontrol, network-manager-applet, bluez, libnotify
 - DevOps tooling: ansible, terraform, kubectl, helm, podman, kind, jq, yq
 - Security: pam-u2f, yubikey-manager
-- CLI utilities: git, curl, ripgrep, fzf, tmux, btop, fd-find, and more
+- CLI utilities: git, curl, ripgrep, fzf, tmux, btop, bat, fd-find, vim, htop, wget
+- Theming: plasma-integration, Qt5/Qt6 platform theme, Tela icon theme (accent-colored)
+- Performance: tuned + tuned-ppd (power profile daemon)
+- Firewall: firewalld enabled with default zone
 - Shell env: `~/.config/shell/bootstrap-env.sh` sourced from `.bashrc`
 - Keyboard layout: FR (system-wide)
-- SDDM greeter: sddm-theme-corners (dark, Qt5)
+- SDDM greeter: sddm-theme-corners (dark, Qt6)
 - GPU groups: adds user to `video` and `render` if a discrete AMD GPU (RDNA2+) is detected
 
 **After running, reboot** to apply group changes and keyboard layout.
@@ -107,18 +115,22 @@ bash scripts/apps.sh start
 
 **What it installs:**
 
-| App | Method | Reason |
-|---|---|---|
-| Firefox | RPM | Standard Fedora package; sets `MOZ_ENABLE_WAYLAND=1` in `/etc/environment` |
-| Brave | RPM (vendor repo) | Vendor recommends RPM; Flatpak disables Chromium's internal sandbox |
-| EasyEffects | Flatpak | RPM has PipeWire context failures on Fedora 41+ |
-| Slack | Flatpak | Sandbox isolation for sensitive comms |
-| Signal | Flatpak | No official Fedora RPM; Flathub is standard |
-| Nextcloud | RPM | Integrates with system file manager and tray |
-| ProtonVPN | RPM (vendor repo) | Flatpak has Wayland rendering failures; needs NetworkManager integration |
-| KeePassXC | RPM | Browser native messaging works RPM-to-RPM (Brave, Firefox) |
-| virt-manager / KVM | RPM group | `Virtualization` group + libvirt service + libvirt group membership |
-| Podman | — | Already installed by bootstrap; script confirms |
+| App | Method |
+|---|---|
+| Firefox | RPM |
+| Brave | RPM (vendor repo) |
+| EasyEffects | Flatpak |
+| Slack | Flatpak |
+| Signal | Flatpak |
+| Nextcloud | RPM |
+| ProtonVPN | RPM (vendor repo) |
+| KeePassXC | RPM |
+| Mesa / AMD acceleration | RPM (libva-utils, mesa-vdpau-drivers-freeworld, mesa-vulkan-drivers) |
+| virt-manager / KVM | RPM (`@virtualization` group) |
+
+Optional desktop utilities (mutually exclusive flags):
+- `--gtk-apps` — Thunar, Evince, GNOME Calculator, Loupe, File Roller, Celluloid
+- `--qt-apps` — Dolphin, Okular, KCalc, Gwenview, Ark, Haruna
 
 **After running:** log out and back in for `libvirt` group membership to take effect.
 
@@ -149,20 +161,6 @@ curl -fsSL https://claude.ai/install.sh | bash
 This installs a self-contained binary to `~/.claude/` and adds it to your PATH. Updates happen automatically in the background.
 
 On first run, `claude` will open a browser window to authenticate with your Anthropic account.
-
-**Migrating from the old npm-based install:** If you previously installed via npm, clean up the old setup:
-
-```bash
-# Remove the isolated npm environment
-rm -rf ~/.local/share/claude-code
-
-# Remove the PATH entry added to ~/.bashrc
-# Edit ~/.bashrc and delete the line:
-# export PATH="$HOME/.local/share/claude-code/node_modules/.bin:$PATH"
-
-# nodejs/npm can be removed too if not needed for anything else
-sudo dnf remove nodejs npm
-```
 
 ---
 
