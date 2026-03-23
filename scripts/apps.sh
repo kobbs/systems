@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Fedora Application Stack — Phase 3
-# ====================================
-# Installs user-facing applications after Phase 1 (system bootstrap) and
-# Phase 2 (dotfiles). Run as a regular user (not root).
+# Fedora Application Stack
+# ========================
+# Installs user-facing applications. Run after bootstrap and dotfiles.
+# Run as a regular user (not root).
 #
 # RPM vs Flatpak rationale is documented per section below.
 
@@ -21,9 +21,9 @@ PROTON_RPM="${PROTON_RPM:-protonvpn-stable-release-1.0.1-2.noarch.rpm}"
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [OPTIONS]
+Usage: $(basename "$0") start [OPTIONS]
 
-Install user-facing applications (Phase 3).
+Install user-facing applications.
 
 Options:
   --gtk-apps    Install GTK desktop utilities (Thunar, Evince, GNOME Calculator, …)
@@ -32,11 +32,30 @@ Options:
 
 Flags --gtk-apps and --qt-apps are mutually exclusive.
 If neither is passed, no desktop utilities are installed (backward-compatible).
+
+Examples:
+  $(basename "$0") start                    Install apps (no desktop utilities)
+  $(basename "$0") start --gtk-apps         Install apps + GTK desktop utilities
+  $(basename "$0") start --qt-apps          Install apps + Qt/KDE desktop utilities
 EOF
     exit 0
 }
 
 DESKTOP_TOOLKIT=""
+
+# Require "start" subcommand; no args or -h/--help prints usage
+if [[ $# -eq 0 ]]; then
+    usage
+fi
+case "$1" in
+    start)      shift ;;
+    -h|--help)  usage ;;
+    *)
+        echo "ERROR: Unknown command: $1" >&2
+        echo "Run '$(basename "$0") --help' for usage." >&2
+        exit 1
+        ;;
+esac
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -104,7 +123,7 @@ ok "Browsers installed"
 # ---------------------------------------------------------------------------
 # 2. Audio
 # ---------------------------------------------------------------------------
-# PipeWire is pre-installed on Fedora. pavucontrol is in Phase 1.
+# PipeWire is pre-installed on Fedora. pavucontrol is in bootstrap.
 # EasyEffects: Flatpak — RPM version has PipeWire context connection failures
 #              reported on Fedora 41+.
 
@@ -119,7 +138,7 @@ ok "EasyEffects installed"
 # ---------------------------------------------------------------------------
 # 3. Mesa / AMD 3D Acceleration
 # ---------------------------------------------------------------------------
-# mesa-va-drivers-freeworld swap is handled in Phase 1.
+# mesa-va-drivers-freeworld swap is handled in bootstrap.
 # These packages add Vulkan, VDPAU, and VA-API verification tooling.
 
 info "Installing Mesa/AMD acceleration packages..."
@@ -223,13 +242,13 @@ ok "KVM stack installed; user added to libvirt group"
 # ---------------------------------------------------------------------------
 # 9. Podman
 # ---------------------------------------------------------------------------
-# Podman is already installed in Phase 1.
+# Podman is already installed by bootstrap.
 
 info "Podman check..."
 if command -v podman &>/dev/null; then
-    ok "Podman already installed (Phase 1): $(podman --version)"
+    ok "Podman already installed (bootstrap): $(podman --version)"
 else
-    warn "Podman not found — was Phase 1 run? Install with: sudo dnf install -y podman"
+    warn "Podman not found — was bootstrap run? Install with: sudo dnf install -y podman"
 fi
 
 # ---------------------------------------------------------------------------

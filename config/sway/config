@@ -18,7 +18,7 @@ seat * xcursor_theme Adwaita 24
 exec_always {
     gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark'
     gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
-    gsettings set org.gnome.desktop.interface icon-theme 'Adwaita'
+    gsettings set org.gnome.desktop.interface icon-theme 'Tela-orange'
     gsettings set org.gnome.desktop.interface cursor-theme 'Adwaita'
     gsettings set org.gnome.desktop.interface font-name 'Sans 11'
 }
@@ -28,6 +28,7 @@ exec /usr/libexec/polkit-mate-authentication-agent-1
 exec waybar
 exec dunst
 exec bluetoothctl power on
+exec nm-applet
 
 exec swayidle -w \
     timeout 300 'swaylock -f' \
@@ -123,7 +124,7 @@ bindsym Control+$mod+Left workspace prev
 bindsym Control+$mod+Right workspace next
 bindsym $mod+Return exec kitty
 bindsym $mod+Shift+A kill
-bindsym $mod+d exec bemenu-run --fn "monospace 10" --nb "#1a1a1a" --nf "#ffaa00" --hb "#ffaa00" --hf "#1a1a1a" --fb "#1a1a1a" --ff "#ffaa00" --line-height 28 --width-factor 1.0 --margin 0 --no-overlap --monitor 0 --tf "#ffaa00"
+bindsym $mod+d exec bemenu-run --fn "monospace 10" --nb "#1a1a1a" --nf "#ff8800" --hb "#ff8800" --hf "#1a1a1a" --fb "#1a1a1a" --ff "#ff8800" --line-height 28 --width-factor 1.0 --margin 0 --no-overlap --monitor 0 --tf "#ff8800"
 bindsym $mod+j focus left
 bindsym $mod+k focus down
 bindsym $mod+l focus up
@@ -155,11 +156,11 @@ bindsym $mod+Shift+e exec swaynag -t warning -m 'You pressed the exit shortcut. 
 font pango:Droid Sans Fallback 12
 default_border pixel 1
 # colour of border, background, text, indicator, and child_border
-client.focused          #88DD00 #555754 #FFFFFF #88DD00 #88DD00
-client.focused_inactive #557700 #2E3537 #FFFFFF #557700 #557700
-client.unfocused        #2A3B00 #2E3436 #FFFFFF #2A3B00 #2A3B00
+client.focused          #ff8800 #555754 #FFFFFF #ff8800 #ff8800
+client.focused_inactive #995200 #2E3537 #FFFFFF #995200 #995200
+client.unfocused        #4d2900 #2E3436 #FFFFFF #4d2900 #4d2900
 client.urgent           #A40000 #2E3436 #FFFFFF #A40000 #A40000
-client.placeholder      #8BE235 #2E3436 #D8DEE8 #2E3436 #2E3436
+client.placeholder      #ffcc44 #2E3436 #D8DEE8 #2E3436 #2E3436
 client.background       #2E3436
 
 # -- modes

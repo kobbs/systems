@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # CachyOS-inspired bash prompt
-# Managed by scripts/deploy.sh — edit here, re-run deploy to apply.
+# Managed by scripts/dotfiles.sh — edit here, re-run deploy to apply.
 
 # ── ANSI color helpers (use \001/\002 so bash counts width correctly) ─────────
 _pc() { printf '\001\e[%sm\002' "$1"; }
@@ -9,7 +9,7 @@ _pc() { printf '\001\e[%sm\002' "$1"; }
 _R="$(_pc 0)"        # reset
 _B="$(_pc 1)"        # bold
 _CYAN="$(_pc 96)"    # bright cyan   — username
-_GREEN="$(_pc 92)"   # bright green  — hostname  (matches waybar accent)
+_GREEN="$(_pc 33)"   # bright green  — hostname  (matches waybar accent)
 _BLUE="$(_pc 94)"    # bright blue   — path
 _YELLOW="$(_pc 93)"  # bright yellow — git branch
 _RED="$(_pc 91)"     # bright red    — root / non-zero exit

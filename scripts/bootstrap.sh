@@ -4,44 +4,57 @@
 # =======================
 # Target: AMD GPU, Sway/Wayland, DevOps Tooling
 # Machines: Home desktop, work laptop, personal laptop
-# Phase 1: System repos, packages, and system-level config only.
-#          User-level configs (sway, waybar, dotfiles) are handled in Phase 2.
+# System repos, packages, and system-level config only.
+# User-level configs (sway, waybar, dotfiles) are handled by dotfiles.sh.
 #
 # Usage:
-#   ./scripts/bootstrap.sh              # auto-detects Sway Spin vs base Fedora
-#   ./scripts/bootstrap.sh --sway-spin  # force Sway Spin mode (skip core Sway packages)
-#   ./scripts/bootstrap.sh --rocm       # also install ROCm stack (requires discrete AMD GPU)
+#   ./scripts/bootstrap.sh                          # prints usage
+#   ./scripts/bootstrap.sh start                    # auto-detects Sway Spin vs KDE Spin
+#   ./scripts/bootstrap.sh start --sway-spin        # force Sway Spin mode
+#   ./scripts/bootstrap.sh start --sway-spin --rocm # Sway Spin + ROCm
 
 set -euo pipefail
 
+# Global cleanup — temp files register here; EXIT trap cleans them all.
+_cleanup_files=()
+_cleanup() { rm -rf "${_cleanup_files[@]}" 2>/dev/null || true; }
+trap _cleanup EXIT
+
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
+
+# Source user env (gitignored), fall back to sample
+if [[ -f "$(dirname "$0")/env" ]]; then
+    # shellcheck source=scripts/env
+    source "$(dirname "$0")/env"
+else
+    # shellcheck source=scripts/env-sample
+    source "$(dirname "$0")/env-sample"
+fi
 
 # ---------------------------------------------------------------------------
 # Usage
 # ---------------------------------------------------------------------------
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [OPTIONS]
+Usage: $(basename "$0") start [OPTIONS]
 
 Bootstrap a Fedora system with Sway/Wayland, DevOps tooling, and optionally ROCm.
 
 Options:
   --sway-spin       Force Sway Spin mode (skip core Sway packages already in the spin)
-  --base            Force base Fedora mode (install full Sway stack)
+  --kde-spin        Force KDE Spin mode (install full Sway stack)
   --rocm            Install ROCm stack for AMD GPU compute (requires discrete AMD GPU)
-  --hostname=NAME   Set a custom hostname (persisted across re-runs)
   -h, --help        Show this help message and exit
 
 Environment variables:
   K8S_VERSION   Kubernetes repo channel (default: v1.34)
 
 Examples:
-  $(basename "$0")                        Auto-detect mode, skip ROCm
-  $(basename "$0") --sway-spin            Sway Spin mode
-  $(basename "$0") --rocm                 Auto-detect mode + install ROCm
-  $(basename "$0") --base --rocm          Base Fedora + ROCm
-  $(basename "$0") --hostname=my-box      Set custom hostname
+  $(basename "$0") start                        Auto-detect mode, skip ROCm
+  $(basename "$0") start --sway-spin            Sway Spin mode
+  $(basename "$0") start --rocm                 Auto-detect mode + install ROCm
+  $(basename "$0") start --kde-spin --rocm      KDE Spin + ROCm
 EOF
     exit 0
 }
@@ -55,14 +68,26 @@ K8S_VERSION="${K8S_VERSION:-v1.34}"   # Kubernetes repo channel
 
 INSTALL_ROCM=false
 _force_mode=""
-_force_hostname=""
+
+# Require "start" subcommand; no args or -h/--help prints usage
+if [[ $# -eq 0 ]]; then
+    usage
+fi
+case "$1" in
+    start)      shift ;;
+    -h|--help)  usage ;;
+    *)
+        echo "ERROR: Unknown command: $1" >&2
+        echo "Run '$(basename "$0") --help' for usage." >&2
+        exit 1
+        ;;
+esac
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --sway-spin)    _force_mode="sway-spin"; shift ;;
-        --base)         _force_mode="base";      shift ;;
-        --rocm)         INSTALL_ROCM=true;       shift ;;
-        --hostname=*)   _force_hostname="${1#*=}"; shift ;;
+        --sway-spin)    _force_mode="sway-spin";  shift ;;
+        --kde-spin)     _force_mode="kde-spin";    shift ;;
+        --rocm)         INSTALL_ROCM=true;         shift ;;
         -h|--help)      usage ;;
         *)
             echo "ERROR: Unknown option: $1" >&2
@@ -77,13 +102,13 @@ done
 # The detected mode is persisted to a state file so re-runs use the same mode
 # (after base Fedora installs sway, auto-detection alone would flip to Sway
 # Spin mode and change the shell environment).
-# Override with --sway-spin / --base flag if auto-detection doesn't fit.
+# Override with --sway-spin / --kde-spin flag if auto-detection doesn't fit.
 # ---------------------------------------------------------------------------
 _MODE_FILE="$HOME/.config/shell/.bootstrap-mode"
 SWAY_SPIN=false
 if [[ "$_force_mode" == "sway-spin" ]]; then
     SWAY_SPIN=true
-elif [[ "$_force_mode" == "base" ]]; then
+elif [[ "$_force_mode" == "kde-spin" ]]; then
     SWAY_SPIN=false
 elif [[ -f "$_MODE_FILE" ]] && grep -qxE 'true|false' "$_MODE_FILE"; then
     # Re-run: use the mode from the first run
@@ -119,34 +144,9 @@ if lspci 2>/dev/null | grep -qi 'VGA.*AMD.*Navi\|VGA.*AMD.*RDNA'; then
 fi
 
 # ---------------------------------------------------------------------------
-# Hostname — auto-detect or use override
+# Hostname — read from scripts/env
 # ---------------------------------------------------------------------------
-_HOSTNAME_OVERRIDE="$HOME/.config/shell/.hostname-override"
-
-if [[ -n "$_force_hostname" ]]; then
-    # CLI flag: persist override and apply
-    mkdir -p "$(dirname "$_HOSTNAME_OVERRIDE")"
-    echo "$_force_hostname" > "$_HOSTNAME_OVERRIDE"
-    _target_hostname="$_force_hostname"
-elif [[ -f "$_HOSTNAME_OVERRIDE" ]] && [[ -s "$_HOSTNAME_OVERRIDE" ]]; then
-    _target_hostname=$(cat "$_HOSTNAME_OVERRIDE")
-else
-    # Auto-detect form factor
-    _virt=$(systemd-detect-virt 2>/dev/null || echo "none")
-    if [[ "$_virt" != "none" ]]; then
-        _form="vm"
-    else
-        _chassis=$(cat /sys/devices/virtual/dmi/id/chassis_type 2>/dev/null || echo "0")
-        case "$_chassis" in
-            3|4|5|6|7) _form="desktop" ;;
-            8|9|10|14) _form="laptop"  ;;
-            *)         _form="pc"      ;;
-        esac
-    fi
-    # Read Fedora variant
-    _variant=$(. /etc/os-release && echo "${VARIANT_ID:-linux}")
-    _target_hostname="${_form}-${_variant}"
-fi
+_target_hostname="$HOSTNAME"
 
 if [[ "$(hostname -s)" != "$_target_hostname" ]]; then
     sudo hostnamectl set-hostname "$_target_hostname"
@@ -217,6 +217,7 @@ SWAY_COMMON_PKGS=(
     mesa-demos
     network-manager-applet
     pavucontrol
+    plasma-integration
     qt5ct
     qt6ct
     tuned
@@ -360,7 +361,7 @@ info "Installing Yubikey tooling..."
 sudo dnf install -y pam-u2f yubikey-manager
 mkdir -p "$HOME/.config/Yubico"
 ok "Yubikey tools installed"
-# PAM integration (authselect / pam.d edits) is deferred to Phase 2 / dotfiles.
+# PAM integration (authselect / pam.d edits) is deferred to dotfiles.sh.
 
 # ---------------------------------------------------------------------------
 # 8. Essential CLI Tools
@@ -391,9 +392,9 @@ ensure_bashrc_source
 
 # Write bootstrap-env.sh only when the content has changed.
 _env_tmp=$(mktemp)
-trap 'rm -f "$_env_tmp"' EXIT
+_cleanup_files+=("$_env_tmp")
 cat <<'ENVEOF' > "$_env_tmp"
-# Managed by scripts/bootstrap.sh — Phase 1
+# Managed by scripts/bootstrap.sh
 # Do not edit manually; changes will be overwritten on next bootstrap run.
 # Put personal overrides in ~/.bashrc or a separate sourced file.
 
@@ -426,86 +427,87 @@ sudo localectl set-x11-keymap fr
 ok "Keyboard layout set to FR"
 
 # ---------------------------------------------------------------------------
-# 11. SDDM greeter — solid dark background (matches sway's #222222)
+# 11. Icon theme (Tela, system-wide — color follows ACCENT)
 # ---------------------------------------------------------------------------
-# Both SDDM themes read theme.conf.user for per-site overrides.
-# Breeze (base Fedora) supports type=color; sway-fedora needs an image file.
+# Installed system-wide so the SDDM greeter (runs as "sddm" user) can
+# also use it. No Fedora package available — installed from GitHub.
 
-if [ "$SWAY_SPIN" = true ]; then
-    SDDM_THEME_DIR="/usr/share/sddm/themes/03-sway-fedora"
+load_accent
+if [[ -d "/usr/share/icons/Tela-${ACCENT_NAME}" ]]; then
+    ok "Tela ${ACCENT_NAME} icon theme already installed (skipped)"
 else
-    SDDM_THEME_DIR="/usr/share/sddm/themes/01-breeze-fedora"
+    info "Installing Tela ${ACCENT_NAME} icon theme (system-wide)..."
+    _tela_tmp=$(mktemp -d)
+    _cleanup_files+=("$_tela_tmp")
+    git clone --depth 1 https://github.com/vinceliuice/Tela-icon-theme.git "$_tela_tmp"
+    sudo bash "$_tela_tmp/install.sh" -d /usr/share/icons "$ACCENT_NAME"
+    rm -rf "$_tela_tmp"
+    ok "Tela ${ACCENT_NAME} icon theme installed"
 fi
 
-if [ -d "$SDDM_THEME_DIR" ]; then
-    info "Configuring SDDM dark background..."
+# ---------------------------------------------------------------------------
+# 12. SDDM greeter — sddm-theme-corners
+# ---------------------------------------------------------------------------
+# Minimal Qt5 SDDM theme with corners layout. Dark grey + green/orange accent.
 
-    if [ "$SWAY_SPIN" = true ]; then
-        # The sway-fedora theme reads config.background as an image path —
-        # it doesn't support type=color. Generate a solid #222222 PNG.
-        _png_file="$SDDM_THEME_DIR/background-dark.png"
-        _png_tmp="$(mktemp)"
-        trap 'rm -f "$_png_tmp"' EXIT
-        python3 -c "
-import struct, zlib, sys
-def chunk(t, d):
-    c = t + d
-    return struct.pack('>I', len(d)) + c + struct.pack('>I', zlib.crc32(c) & 0xFFFFFFFF)
-W, H = 64, 64
-sig = b'\x89PNG\r\n\x1a\n'
-ihdr = chunk(b'IHDR', struct.pack('>IIBBBBB', W, H, 8, 2, 0, 0, 0))
-raw = (b'\x00' + b'\x22\x22\x22' * W) * H
-idat = chunk(b'IDAT', zlib.compress(raw))
-iend = chunk(b'IEND', b'')
-sys.stdout.buffer.write(sig + ihdr + idat + iend)
-" > "$_png_tmp"
+info "Configuring SDDM theme..."
 
-        if ! sudo cmp -s "$_png_tmp" "$_png_file" 2>/dev/null; then
-            sudo cp "$_png_tmp" "$_png_file"
-        fi
-        sudo chmod 644 "$_png_file"
-        rm -f "$_png_tmp"
-        trap - EXIT
+# Dependencies for sddm-theme-corners (Qt6 greeter)
+sudo dnf install -y \
+    qt6-qt5compat \
+    qt6-qtsvg
 
-        _conf_tmp="$(mktemp)"
-        trap 'rm -f "$_conf_tmp"' EXIT
-        cat <<SDDM > "$_conf_tmp"
-[General]
-background=$_png_file
-SDDM
-
-        if ! sudo cmp -s "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user" 2>/dev/null; then
-            sudo cp "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user"
-            ok "SDDM background set to dark image ($SDDM_THEME_DIR)"
-        else
-            ok "SDDM background already up to date"
-        fi
-        sudo chmod 644 "$SDDM_THEME_DIR/theme.conf.user"
-        rm -f "$_conf_tmp"
-        trap - EXIT
-    else
-        # Breeze theme supports type=color natively
-        _conf_tmp="$(mktemp)"
-        trap 'rm -f "$_conf_tmp"' EXIT
-        cat <<'SDDM' > "$_conf_tmp"
-[General]
-type=color
-color=#222222
-SDDM
-
-        if ! sudo cmp -s "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user" 2>/dev/null; then
-            sudo cp "$_conf_tmp" "$SDDM_THEME_DIR/theme.conf.user"
-            ok "SDDM background set to #222222 ($SDDM_THEME_DIR)"
-        else
-            ok "SDDM background already up to date"
-        fi
-        sudo chmod 644 "$SDDM_THEME_DIR/theme.conf.user"
-        rm -f "$_conf_tmp"
-        trap - EXIT
-    fi
+# Install theme from GitHub if not present
+_SDDM_THEME_DIR="/usr/share/sddm/themes/corners"
+if [[ -d "$_SDDM_THEME_DIR" ]]; then
+    ok "sddm-theme-corners already installed (skipped)"
 else
-    warn "SDDM theme dir not found ($SDDM_THEME_DIR) — skipping greeter background"
+    _corners_tmp=$(mktemp -d)
+    _cleanup_files+=("$_corners_tmp")
+    git clone --depth 1 https://github.com/aczw/sddm-theme-corners.git "$_corners_tmp"
+    sudo cp -r "$_corners_tmp/corners" "$_SDDM_THEME_DIR"
+    # Patch Qt5 → Qt6: QtGraphicalEffects was removed in Qt6
+    sudo sed -i 's/import QtGraphicalEffects.*/import Qt5Compat.GraphicalEffects/' \
+        "$_SDDM_THEME_DIR"/components/*.qml
+    # Set dark background color on root Rectangle (theme defaults to white)
+    sudo sed -i '/id: root/a\    color: "#222222"' "$_SDDM_THEME_DIR/Main.qml"
+    sudo chmod -R a+rX "$_SDDM_THEME_DIR"
+    rm -rf "$_corners_tmp"
+    ok "sddm-theme-corners installed"
 fi
+
+# Deploy custom theme.conf from repo and apply accent colors
+load_accent
+_theme_tmp=$(mktemp)
+_cleanup_files+=("$_theme_tmp")
+cp "$(dirname "$0")/../config/sddm/theme.conf" "$_theme_tmp"
+apply_accent "$_theme_tmp"
+sudo cp "$_theme_tmp" "$_SDDM_THEME_DIR/theme.conf"
+sudo chmod 644 "$_SDDM_THEME_DIR/theme.conf"
+rm -f "$_theme_tmp"
+
+# Set corners as active SDDM theme
+_sddm_conf_tmp=$(mktemp)
+_cleanup_files+=("$_sddm_conf_tmp")
+cat <<'SDDMCONF' > "$_sddm_conf_tmp"
+[Theme]
+Current=corners
+SDDMCONF
+
+sudo mkdir -p /etc/sddm.conf.d
+if ! sudo cmp -s "$_sddm_conf_tmp" /etc/sddm.conf.d/theme.conf 2>/dev/null; then
+    sudo cp "$_sddm_conf_tmp" /etc/sddm.conf.d/theme.conf
+    sudo chmod 644 /etc/sddm.conf.d/theme.conf
+fi
+rm -f "$_sddm_conf_tmp"
+
+# Disable greetd if it was previously enabled
+if systemctl is-enabled greetd &>/dev/null; then
+    sudo systemctl disable greetd
+fi
+sudo systemctl enable sddm
+
+ok "SDDM + corners theme configured"
 
 # ---------------------------------------------------------------------------
 # Summary
@@ -520,7 +522,7 @@ echo ""
 echo "Next steps:"
 echo "  1. REBOOT to apply group changes and keyboard layout"
 echo "  2. Register Yubikey:  pamu2fcfg > ~/.config/Yubico/u2f_keys"
-echo "  3. Phase 2: dotfile sync + user configs (sway, waybar, etc.)"
+echo "  3. Run dotfiles.sh: dotfile sync + user configs (sway, waybar, etc.)"
 if [ "$HAS_DISCRETE_AMD_GPU" = true ] && [ "$INSTALL_ROCM" = false ]; then
     echo "  4. ROCm: re-run with --rocm to install AMD compute stack"
 fi

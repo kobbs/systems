@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Dotfiles Deploy Script — Phase 2
-# =================================
+# Dotfiles Deploy Script
+# ======================
 # Symlinks configs from this repo into ~/.config/.
 # Safe to re-run: already-correct symlinks are skipped, existing files are
 # backed up with a .bak suffix.
@@ -14,6 +14,39 @@ CONFIG_DIR="$REPO_DIR/config"
 
 # shellcheck source=scripts/lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") start
+
+Deploy dotfiles — symlink configs from this repo into ~/.config/.
+Safe to re-run: already-correct symlinks are skipped, existing files are
+backed up with a .bak suffix.
+
+Options:
+  -h, --help    Show this help message and exit
+EOF
+    exit 0
+}
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+if [[ $# -eq 0 ]]; then
+    usage
+fi
+case "$1" in
+    start)      shift ;;
+    -h|--help)  usage ;;
+    *)
+        echo "ERROR: Unknown command: $1" >&2
+        echo "Run '$(basename "$0") --help' for usage." >&2
+        exit 1
+        ;;
+esac
 
 init_logging "deploy"
 
@@ -64,8 +97,10 @@ info "Deploying waybar config..."
 link_file "$CONFIG_DIR/waybar/config"    "$HOME/.config/waybar/config"
 link_file "$CONFIG_DIR/waybar/style.css" "$HOME/.config/waybar/style.css"
 link_file "$CONFIG_DIR/waybar/scripts"   "$HOME/.config/waybar/scripts"
-chmod +x "$CONFIG_DIR"/waybar/scripts/*.sh
-ok "waybar scripts marked executable"
+if compgen -G "$CONFIG_DIR/waybar/scripts/*.sh" >/dev/null 2>&1; then
+    chmod +x "$CONFIG_DIR"/waybar/scripts/*.sh
+    ok "waybar scripts marked executable"
+fi
 
 # ---------------------------------------------------------------------------
 # Kanshi
@@ -130,6 +165,37 @@ link_file "$CONFIG_DIR/kitty/kitty.conf" "$HOME/.config/kitty/kitty.conf"
 # ---------------------------------------------------------------------------
 info "Deploying tmux config..."
 link_file "$CONFIG_DIR/tmux/tmux.conf" "$HOME/.config/tmux/tmux.conf"
+
+# ---------------------------------------------------------------------------
+# Apply accent color
+# ---------------------------------------------------------------------------
+load_accent
+info "Applying accent color: $ACCENT_NAME (${ACCENT_PRIMARY})..."
+
+_accent_files=(
+    "$CONFIG_DIR/sway/config"
+    "$CONFIG_DIR/waybar/style.css"
+    "$CONFIG_DIR/kitty/kitty.conf"
+    "$CONFIG_DIR/tmux/tmux.conf"
+    "$CONFIG_DIR/dunst/dunstrc"
+    "$CONFIG_DIR/swaylock/config"
+    "$CONFIG_DIR/sddm/theme.conf"
+    "$CONFIG_DIR/gtk/settings.ini"
+    "$CONFIG_DIR/kde/kdeglobals"   # hex colors won't match (RGB triplets), but Tela-<preset> will
+)
+
+for _af in "${_accent_files[@]}"; do
+    apply_accent "$_af"
+done
+
+# bash/prompt.sh uses ANSI escape codes — replace hostname color
+# Targets the _GREEN variable line: _GREEN="$(_pc NN)"  → swap the ANSI code
+_prompt_file="$CONFIG_DIR/bash/prompt.sh"
+if [[ -f "$_prompt_file" ]]; then
+    sed -i "s/^\(_GREEN=\"\$(_pc \)[0-9]*/\1${ACCENT_ANSI}/" "$_prompt_file"
+fi
+
+ok "Accent color applied"
 
 # ---------------------------------------------------------------------------
 # Summary

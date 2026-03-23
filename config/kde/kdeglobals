@@ -135,6 +135,9 @@ ColorScheme=BreezeDark
 Name=Breeze Dark
 shadeSortColumn=true
 
+[Icons]
+Theme=Tela-orange
+
 [KDE]
 contrast=4
 

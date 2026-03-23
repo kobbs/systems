@@ -6,12 +6,14 @@ Dotfiles and bootstrap scripts for Fedora + Sway (Wayland).
 
 ```
 scripts/              Automation
-  bootstrap.sh        Phase 1 — system packages, repos, env vars
-  deploy.sh           Phase 2 — symlink config/ into ~/.config/
-  apps.sh             Phase 3 — user-facing applications
+  env-sample          Default variables (hostname, accent color) — checked in
+  env                 User overrides (gitignored) — copy from env-sample
+  bootstrap.sh        System packages, repos, env vars
+  dotfiles.sh         Symlink config/ into ~/.config/
+  apps.sh             User-facing applications
   lib/common.sh       Shared helpers (logging, preflight, ensure_bashrc_source)
 
-config/               Dotfiles (deployed by scripts/deploy.sh)
+config/               Dotfiles (deployed by scripts/dotfiles.sh)
   sway/               Sway compositor
   waybar/             Waybar modules, styles, scripts/
   kanshi/             Per-machine display profiles
@@ -30,10 +32,24 @@ All layers must agree for dark theme to work everywhere:
 | GTK 3/4 | gsettings + settings.ini | `config/gtk/settings.ini` (symlinked to both gtk-3.0 and gtk-4.0) |
 | Qt (all apps) | `QT_QPA_PLATFORMTHEME=kde` + plasma-integration | `config/kde/kdeglobals` |
 | Qt style | `QT_STYLE_OVERRIDE=Breeze` | set in bootstrap-env.sh |
-| SDDM greeter | `theme.conf.user` override | Written by `scripts/bootstrap.sh` to `/usr/share/sddm/themes/01-breeze-fedora/` |
+| SDDM greeter | sddm-theme-corners (Qt5) | `config/sddm/theme.conf` deployed by `scripts/bootstrap.sh` |
+| Accent color | Named presets in `scripts/env` | `ACCENT=green` (green/orange/blue). Applied by `dotfiles.sh` via sed on config files |
 
 Key env vars are written by the bootstrap script into `~/.config/shell/bootstrap-env.sh`.
 `QT_QPA_PLATFORMTHEME=kde` is required (not `qt5ct`) because `plasma-integration` reads `kdeglobals` for all Qt apps. Setting it to `qt5ct` would cause KDE apps like Dolphin to ignore `kdeglobals`.
+
+**Do not remove Qt5 packages.** `plasma-integration` and `plasma-breeze` depend on Qt5 libraries (`kf5-frameworkintegration`, etc.). Removing Qt5 packages (e.g. `qt5-qtquickcontrols2`) triggers a cascade that pulls out the entire Qt dark theme stack. The SDDM greeter uses Qt6, but the dark theme integration layer still requires Qt5.
+
+### Accent color system
+
+The accent color is centralized via named presets defined in `scripts/lib/common.sh` (the `COLOR_PRESETS` associative array). Each preset maps to a 5-color palette (primary, dim, dark, bright, secondary) plus an ANSI code for the bash prompt.
+
+- `scripts/env-sample` — checked in, documents defaults (`ACCENT="green"`)
+- `scripts/env` — gitignored, user's local overrides
+- `dotfiles.sh` calls `apply_accent` which scans config files for any known preset's colors and replaces them with the target preset
+- `bootstrap.sh` applies accent to the deployed SDDM theme.conf copy
+
+When adding a new config file that uses the accent color, add it to the `_accent_files` array in `scripts/dotfiles.sh` and use colors from the green preset as defaults in the config file.
 
 ## Working guidelines
 
@@ -49,7 +65,7 @@ When a plan includes a "fallback" section, that's a signal the primary fix might
 
 A config change in this repo frequently touches:
 1. The config file itself (e.g. `config/kde/kdeglobals`)
-2. The deploy script (`scripts/deploy.sh`) to symlink it
+2. The deploy script (`scripts/dotfiles.sh`) to symlink it
 3. The bootstrap script to set env vars that point apps at the config
 4. The live env file (`~/.config/shell/bootstrap-env.sh`) for immediate effect
 
@@ -81,7 +97,7 @@ All scripts use `set -euo pipefail`. Additional robustness measures:
 ### Deduplication principles
 
 - Shared shell functions go in `scripts/lib/common.sh` — all scripts source it.
-- Config files that are identical across versions (e.g. GTK 3 vs 4) use a single source file with multiple symlinks in `scripts/deploy.sh`.
+- Config files that are identical across versions (e.g. GTK 3 vs 4) use a single source file with multiple symlinks in `scripts/dotfiles.sh`.
 - The bootstrap script uses a single file with mode flags rather than separate near-identical scripts per Fedora variant.
 - Packages shared between bootstrap modes are in a `SWAY_COMMON_PKGS` array — add to the array, not to both branches.
 

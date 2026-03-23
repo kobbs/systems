@@ -255,6 +255,76 @@ journalctl --disk-usage                           # how much space journals use
 sudo journalctl --vacuum-size=500M               # trim journals to 500 MB
 ```
 
+## Application autostart
+
+Apps can auto-launch through several mechanisms on Fedora + Sway. When an app starts unexpectedly, check each layer.
+
+### 1. Sway config (`exec`)
+
+Explicit autostart in `~/.config/sway/config`. Only runs inside Sway.
+
+```bash
+# List what Sway is set to exec
+grep '^exec ' ~/.config/sway/config
+```
+
+### 2. XDG autostart (`.desktop` files)
+
+Desktop apps can install `.desktop` files that request autostart:
+
+- `/etc/xdg/autostart/` — system-wide (installed by RPM packages)
+- `~/.config/autostart/` — per-user
+
+On Fedora, `systemd` has an `xdg-desktop-autostart.target` that processes these entries when a graphical session starts. This is the most common cause of unexpected app launches.
+
+```bash
+# List all XDG autostart entries
+ls /etc/xdg/autostart/
+ls ~/.config/autostart/ 2>/dev/null
+
+# Check if xdg-desktop-autostart is active
+systemctl --user status xdg-desktop-autostart.target
+
+# Disable a specific app from autostarting (per-user override)
+mkdir -p ~/.config/autostart
+cp /etc/xdg/autostart/<app>.desktop ~/.config/autostart/
+# Then edit the copy and add: Hidden=true
+```
+
+### 3. systemd user services
+
+Some apps install systemd user units that start with the graphical session.
+
+```bash
+systemctl --user list-unit-files --state=enabled   # enabled user services
+systemctl --user disable <service>                 # prevent autostart
+```
+
+### 4. D-Bus activation
+
+Some apps register as D-Bus services and get activated on demand when another app sends a message. These don't have a simple on/off toggle — the `.service` file lives in `/usr/share/dbus-1/services/`.
+
+### 5. Flatpak background permissions
+
+Flatpak apps can request background portal access, allowing them to run after their window is closed or at login.
+
+```bash
+# Check permissions for a specific Flatpak
+flatpak info --show-permissions <app-id> | grep -i background
+
+# Revoke background permission
+flatpak override --user --no-talk-name=org.freedesktop.impl.portal.Background <app-id>
+```
+
+### Diagnosing unexpected autostart
+
+```bash
+# Quick check across all mechanisms
+grep '^exec ' ~/.config/sway/config
+ls /etc/xdg/autostart/ ~/.config/autostart/ 2>/dev/null
+systemctl --user list-unit-files --state=enabled
+```
+
 ## WiFi (nmcli)
 
 `NetworkManager` is a default Fedora package. The tray GUI (`network-manager-applet`) is installed by bootstrap.sh.
@@ -345,3 +415,56 @@ firewall-cmd --info-service=ssh                 # what ports a service opens
 | `libvirt` | — | Virtual network bridge rules for KVM |
 
 > **Note:** `--permanent` writes to disk but doesn't take effect until `--reload`. Without `--permanent`, changes apply immediately but are lost on reboot. To do both at once, run the command twice (once with `--permanent`, once without) or just add `--permanent` and `--reload`.
+
+## SDDM (login manager)
+
+The bootstrap script installs **sddm-theme-corners** (Qt5 theme, patched for Qt6 greeter). Theme config lives in `config/sddm/theme.conf` and is deployed by `scripts/bootstrap.sh`.
+
+### Custom background image
+
+By default the login screen uses a solid dark grey. To use a wallpaper:
+
+```bash
+sudo cp /path/to/wallpaper.jpg /usr/share/sddm/themes/corners/background.jpg
+sudo chmod 644 /usr/share/sddm/themes/corners/background.jpg
+```
+
+Then edit `config/sddm/theme.conf` and set:
+
+```ini
+BgSource="background.jpg"
+```
+
+Re-run `scripts/bootstrap.sh start` to deploy, or copy the file manually:
+
+```bash
+sudo cp config/sddm/theme.conf /usr/share/sddm/themes/corners/theme.conf
+```
+
+### Accent color
+
+SDDM theme colors are managed by the accent color system. When you change `ACCENT` in `scripts/env` and re-run `scripts/bootstrap.sh start`, the deployed `theme.conf` is automatically updated to match the new preset.
+
+To apply accent colors without a full bootstrap re-run:
+
+```bash
+# Copy the repo theme.conf to the live theme directory
+sudo cp config/sddm/theme.conf /usr/share/sddm/themes/corners/theme.conf
+```
+
+The following `theme.conf` keys use the accent color:
+
+| Key | Role |
+|---|---|
+| `InputBorderColor` | Active input field border |
+| `LoginButtonColor` | Login button background |
+| `TimeColor` | Clock display |
+| `PopupActiveColor` | Selected menu item |
+| `UserBorderColor` | User avatar border |
+| `PowerIconColor` | Power button icon (uses secondary accent) |
+
+### Testing the theme without rebooting
+
+```bash
+sudo sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/corners
+```

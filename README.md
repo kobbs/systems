@@ -9,12 +9,13 @@ Fedora workstation bootstrap and dotfiles.
 
 ```
 scripts/             Automation (run these)
-  bootstrap.sh       Phase 1 — system packages, repos, env vars
-  deploy.sh          Phase 2 — symlink configs into ~/.config/
-  apps.sh            Phase 3 — user-facing applications
-  lib/common.sh      Shared helpers (logging, preflight checks)
+  env-sample         Default variables (hostname, accent) — copy to env to override
+  bootstrap.sh       System packages, repos, env vars
+  dotfiles.sh        Symlink configs into ~/.config/
+  apps.sh            User-facing applications
+  lib/common.sh      Shared helpers (logging, preflight, accent colors)
 
-config/              Dotfiles (source of truth, deployed by scripts/deploy.sh)
+config/              Dotfiles (source of truth, deployed by scripts/dotfiles.sh)
   sway/              Sway compositor config
   waybar/            Waybar modules, styles, and scripts
   kanshi/            Per-machine display profiles
@@ -27,22 +28,22 @@ config/              Dotfiles (source of truth, deployed by scripts/deploy.sh)
 
 ---
 
-## Phase 1 — Bootstrap (`scripts/bootstrap.sh`)
+## Bootstrap (`scripts/bootstrap.sh`)
 
 Installs and configures everything at the system level. Run once per machine as a regular user (not root).
 
 ```bash
-bash scripts/bootstrap.sh
+bash scripts/bootstrap.sh start
 ```
 
 ### Sway Spin variant
 
-If starting from **Fedora Sway Spin** instead of base Fedora, pass the `--sway-spin` flag (or let the script auto-detect — it checks if `sway` is already installed):
+If starting from **Fedora Sway Spin** instead of KDE Spin, pass the `--sway-spin` flag (or let the script auto-detect — it checks if `sway` is already installed):
 
 ```bash
-bash scripts/bootstrap.sh --sway-spin
-bash scripts/bootstrap.sh --base       # force base Fedora mode
-bash scripts/bootstrap.sh              # auto-detect (persisted for re-runs)
+bash scripts/bootstrap.sh start --sway-spin
+bash scripts/bootstrap.sh start --kde-spin    # force KDE Spin mode
+bash scripts/bootstrap.sh start               # auto-detect (persisted for re-runs)
 ```
 
 The detected mode is saved to `~/.config/shell/.bootstrap-mode` so re-runs use the same mode even after sway is installed.
@@ -59,37 +60,49 @@ In Sway Spin mode the script skips packages the spin already ships (sway, waybar
 - CLI utilities: git, curl, ripgrep, fzf, tmux, btop, fd-find, and more
 - Shell env: `~/.config/shell/bootstrap-env.sh` sourced from `.bashrc`
 - Keyboard layout: FR (system-wide)
-- SDDM greeter: solid dark background (#222222) matching Sway
+- SDDM greeter: sddm-theme-corners (dark, Qt5)
 - GPU groups: adds user to `video` and `render` if a discrete AMD GPU (RDNA2+) is detected
 
 **After running, reboot** to apply group changes and keyboard layout.
 
-**Not handled by Phase 1:**
+**Not handled by bootstrap:**
 
-- Dotfile deployment (Phase 2)
+- Dotfile deployment (`scripts/dotfiles.sh`)
 - Yubikey PAM integration — register key first: `pamu2fcfg > ~/.config/Yubico/u2f_keys`
 - ROCm/AI workloads (home desktop only — dedicated process)
 
 ---
 
-## Phase 2 — Dotfiles (`scripts/deploy.sh`)
+## Dotfiles (`scripts/dotfiles.sh`)
 
 Symlinks all configs from `config/` into `~/.config/`. Safe to re-run — existing symlinks are updated, existing files are backed up with a timestamped `.bak` suffix.
 
 ```bash
-bash scripts/deploy.sh
+bash scripts/dotfiles.sh start
 ```
 
 Then reload sway with `Super+Shift+C`, or restart it.
 
----
+### Accent color
 
-## Phase 3 — Application Stack (`scripts/apps.sh`)
-
-Installs user-facing applications after Phase 1 and Phase 2. Run as a regular user.
+The accent color is controlled by the `ACCENT` variable. Copy the sample env and set your preference:
 
 ```bash
-bash scripts/apps.sh
+cp scripts/env-sample scripts/env
+# Edit scripts/env → ACCENT="orange"   (presets: green, orange, blue)
+bash scripts/dotfiles.sh start
+```
+
+This propagates the accent to sway borders, waybar, kitty, tmux, dunst, swaylock, SDDM, and the bash prompt. The `scripts/env` file is gitignored — your color choice stays local.
+
+---
+
+## Application Stack (`scripts/apps.sh`)
+
+Installs user-facing applications. Run after bootstrap and dotfiles. Run as a regular user.
+
+```bash
+bash scripts/apps.sh start
 ```
 
 **What it installs:**
@@ -105,7 +118,7 @@ bash scripts/apps.sh
 | ProtonVPN | RPM (vendor repo) | Flatpak has Wayland rendering failures; needs NetworkManager integration |
 | KeePassXC | RPM | Browser native messaging works RPM-to-RPM (Brave, Firefox) |
 | virt-manager / KVM | RPM group | `Virtualization` group + libvirt service + libvirt group membership |
-| Podman | — | Already installed in Phase 1; script confirms |
+| Podman | — | Already installed by bootstrap; script confirms |
 
 **After running:** log out and back in for `libvirt` group membership to take effect.
 
