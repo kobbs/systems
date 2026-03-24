@@ -124,26 +124,30 @@ if [[ "$SDDM_CORNERS" == true ]]; then
         _cleanup_files+=("$_corners_tmp")
         git clone --depth 1 https://github.com/aczw/sddm-theme-corners.git "$_corners_tmp"
         sudo cp -r "$_corners_tmp/corners" "$_SDDM_THEME_DIR"
-        # Fix permissions before patching — mktemp creates mode 700 dirs and
-        # cp -r preserves them, so the glob below would fail as unprivileged user.
-        sudo chmod -R a+rX "$_SDDM_THEME_DIR"
-        # Validate expected structure before patching (guards against upstream changes)
-        if compgen -G "$_SDDM_THEME_DIR/components/*.qml" >/dev/null; then
-            # Patch Qt5 → Qt6: QtGraphicalEffects was removed in Qt6
-            sudo sed -i 's/import QtGraphicalEffects.*/import Qt5Compat.GraphicalEffects/' \
-                "$_SDDM_THEME_DIR"/components/*.qml
-        else
-            warn "sddm-theme-corners: no components/*.qml found — skipping Qt6 patch"
-            warn "The upstream repo may have changed: https://github.com/aczw/sddm-theme-corners"
-        fi
-        if [[ -f "$_SDDM_THEME_DIR/Main.qml" ]]; then
-            # Set dark background color on root Rectangle (theme defaults to white)
-            sudo sed -i '/id: root/a\    color: "#222222"' "$_SDDM_THEME_DIR/Main.qml"
-        else
-            warn "sddm-theme-corners: Main.qml not found — skipping background patch"
-        fi
         rm -rf "$_corners_tmp"
         ok "sddm-theme-corners installed"
+    fi
+
+    # Always fix permissions (recovers from partial installs where cp succeeded
+    # but chmod never ran — mktemp creates mode 700 dirs, cp -r preserves them)
+    sudo chmod -R a+rX "$_SDDM_THEME_DIR"
+
+    # Patch Qt5 → Qt6: QtGraphicalEffects was removed in Qt6 (idempotent)
+    if compgen -G "$_SDDM_THEME_DIR/components/*.qml" >/dev/null; then
+        sudo sed -i 's/import QtGraphicalEffects.*/import Qt5Compat.GraphicalEffects/' \
+            "$_SDDM_THEME_DIR"/components/*.qml
+    else
+        warn "sddm-theme-corners: no components/*.qml found — skipping Qt6 patch"
+        warn "The upstream repo may have changed: https://github.com/aczw/sddm-theme-corners"
+    fi
+
+    # Set dark background color on root Rectangle (theme defaults to white)
+    if [[ -f "$_SDDM_THEME_DIR/Main.qml" ]]; then
+        if ! sudo grep -q 'color: "#222222"' "$_SDDM_THEME_DIR/Main.qml"; then
+            sudo sed -i '/id: root/a\    color: "#222222"' "$_SDDM_THEME_DIR/Main.qml"
+        fi
+    else
+        warn "sddm-theme-corners: Main.qml not found — skipping background patch"
     fi
 
     # Deploy custom theme.conf from repo and apply accent colors
