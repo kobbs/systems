@@ -427,89 +427,6 @@ sudo localectl set-x11-keymap fr
 ok "Keyboard layout set to FR"
 
 # ---------------------------------------------------------------------------
-# 11. Icon theme (Tela, system-wide — color follows ACCENT)
-# ---------------------------------------------------------------------------
-# Installed system-wide so the SDDM greeter (runs as "sddm" user) can
-# also use it. No Fedora package available — installed from GitHub.
-
-load_accent
-if [[ -d "/usr/share/icons/Tela-${ACCENT_NAME}" ]]; then
-    ok "Tela ${ACCENT_NAME} icon theme already installed (skipped)"
-else
-    info "Installing Tela ${ACCENT_NAME} icon theme (system-wide)..."
-    _tela_tmp=$(mktemp -d)
-    _cleanup_files+=("$_tela_tmp")
-    git clone --depth 1 https://github.com/vinceliuice/Tela-icon-theme.git "$_tela_tmp"
-    sudo bash "$_tela_tmp/install.sh" -d /usr/share/icons "$ACCENT_NAME"
-    rm -rf "$_tela_tmp"
-    ok "Tela ${ACCENT_NAME} icon theme installed"
-fi
-
-# ---------------------------------------------------------------------------
-# 12. SDDM greeter — sddm-theme-corners
-# ---------------------------------------------------------------------------
-# Minimal Qt5 SDDM theme with corners layout. Dark grey + green/orange accent.
-
-info "Configuring SDDM theme..."
-
-# Dependencies for sddm-theme-corners (Qt6 greeter)
-sudo dnf install -y \
-    qt6-qt5compat \
-    qt6-qtsvg
-
-# Install theme from GitHub if not present
-_SDDM_THEME_DIR="/usr/share/sddm/themes/corners"
-if [[ -d "$_SDDM_THEME_DIR" ]]; then
-    ok "sddm-theme-corners already installed (skipped)"
-else
-    _corners_tmp=$(mktemp -d)
-    _cleanup_files+=("$_corners_tmp")
-    git clone --depth 1 https://github.com/aczw/sddm-theme-corners.git "$_corners_tmp"
-    sudo cp -r "$_corners_tmp/corners" "$_SDDM_THEME_DIR"
-    # Patch Qt5 → Qt6: QtGraphicalEffects was removed in Qt6
-    sudo sed -i 's/import QtGraphicalEffects.*/import Qt5Compat.GraphicalEffects/' \
-        "$_SDDM_THEME_DIR"/components/*.qml
-    # Set dark background color on root Rectangle (theme defaults to white)
-    sudo sed -i '/id: root/a\    color: "#222222"' "$_SDDM_THEME_DIR/Main.qml"
-    sudo chmod -R a+rX "$_SDDM_THEME_DIR"
-    rm -rf "$_corners_tmp"
-    ok "sddm-theme-corners installed"
-fi
-
-# Deploy custom theme.conf from repo and apply accent colors
-load_accent
-_theme_tmp=$(mktemp)
-_cleanup_files+=("$_theme_tmp")
-cp "$(dirname "$0")/../config/sddm/theme.conf" "$_theme_tmp"
-apply_accent "$_theme_tmp"
-sudo cp "$_theme_tmp" "$_SDDM_THEME_DIR/theme.conf"
-sudo chmod 644 "$_SDDM_THEME_DIR/theme.conf"
-rm -f "$_theme_tmp"
-
-# Set corners as active SDDM theme
-_sddm_conf_tmp=$(mktemp)
-_cleanup_files+=("$_sddm_conf_tmp")
-cat <<'SDDMCONF' > "$_sddm_conf_tmp"
-[Theme]
-Current=corners
-SDDMCONF
-
-sudo mkdir -p /etc/sddm.conf.d
-if ! sudo cmp -s "$_sddm_conf_tmp" /etc/sddm.conf.d/theme.conf 2>/dev/null; then
-    sudo cp "$_sddm_conf_tmp" /etc/sddm.conf.d/theme.conf
-    sudo chmod 644 /etc/sddm.conf.d/theme.conf
-fi
-rm -f "$_sddm_conf_tmp"
-
-# Disable greetd if it was previously enabled
-if systemctl is-enabled greetd &>/dev/null; then
-    sudo systemctl disable greetd
-fi
-sudo systemctl enable sddm
-
-ok "SDDM + corners theme configured"
-
-# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
@@ -522,8 +439,9 @@ echo ""
 echo "Next steps:"
 echo "  1. REBOOT to apply group changes and keyboard layout"
 echo "  2. Register Yubikey:  pamu2fcfg > ~/.config/Yubico/u2f_keys"
-echo "  3. Run dotfiles.sh: dotfile sync + user configs (sway, waybar, etc.)"
+echo "  3. Run theme.sh:     scripts/theme.sh start   (icon theme + SDDM greeter)"
+echo "  4. Run dotfiles.sh:  scripts/dotfiles.sh       (sway, waybar, user configs)"
 if [ "$HAS_DISCRETE_AMD_GPU" = true ] && [ "$INSTALL_ROCM" = false ]; then
-    echo "  4. ROCm: re-run with --rocm to install AMD compute stack"
+    echo "  5. ROCm: re-run with --rocm to install AMD compute stack"
 fi
 echo ""

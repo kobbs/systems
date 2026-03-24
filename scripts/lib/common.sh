@@ -1,5 +1,5 @@
 #!/bin/bash
-# lib/common.sh — Shared helpers for bootstrap.sh, dotfiles.sh, and apps.sh.
+# lib/common.sh — Shared helpers for bootstrap.sh, theme.sh, dotfiles.sh, and apps.sh.
 # Source this file; do not execute it directly.
 
 # ---------------------------------------------------------------------------

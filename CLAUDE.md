@@ -9,6 +9,7 @@ scripts/              Automation
   env-sample          Default variables (hostname, accent color) — checked in
   env                 User overrides (gitignored) — copy from env-sample
   bootstrap.sh        System packages, repos, env vars
+  theme.sh            Icon theme + SDDM greeter theming (system-wide)
   dotfiles.sh         Symlink config/ into ~/.config/
   apps.sh             User-facing applications
   lib/common.sh       Shared helpers (logging, preflight, ensure_bashrc_source)
@@ -32,7 +33,7 @@ All layers must agree for dark theme to work everywhere:
 | GTK 3/4 | gsettings + settings.ini | `config/gtk/settings.ini` (symlinked to both gtk-3.0 and gtk-4.0) |
 | Qt (all apps) | `QT_QPA_PLATFORMTHEME=kde` + plasma-integration | `config/kde/kdeglobals` |
 | Qt style | `QT_STYLE_OVERRIDE=Breeze` | set in bootstrap-env.sh |
-| SDDM greeter | sddm-theme-corners (Qt5) | `config/sddm/theme.conf` deployed by `scripts/bootstrap.sh` |
+| SDDM greeter | sddm-theme-corners (Qt6) | `config/sddm/theme.conf` deployed by `scripts/theme.sh` |
 | Accent color | Named presets in `scripts/env` | `ACCENT=green` (green/orange/blue). Applied by `dotfiles.sh` via sed on config files |
 
 Key env vars are written by the bootstrap script into `~/.config/shell/bootstrap-env.sh`.
@@ -47,7 +48,7 @@ The accent color is centralized via named presets defined in `scripts/lib/common
 - `scripts/env-sample` — checked in, documents defaults (`ACCENT="green"`)
 - `scripts/env` — gitignored, user's local overrides
 - `dotfiles.sh` calls `apply_accent` which scans config files for any known preset's colors and replaces them with the target preset
-- `bootstrap.sh` applies accent to the deployed SDDM theme.conf copy
+- `theme.sh` applies accent to the deployed SDDM theme.conf copy
 
 When adding a new config file that uses the accent color, add it to the `_accent_files` array in `scripts/dotfiles.sh` and use colors from the green preset as defaults in the config file.
 
