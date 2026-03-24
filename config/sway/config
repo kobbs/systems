@@ -12,6 +12,8 @@ output * {
 }
 
 exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec eval $(gnome-keyring-daemon --start --components=secrets,ssh) && \
+    dbus-update-activation-environment --systemd SSH_AUTH_SOCK
 
 # -- dark theme (GTK + QT consistency)
 seat * xcursor_theme Adwaita 24

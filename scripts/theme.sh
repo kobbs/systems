@@ -30,18 +30,25 @@ fi
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") start
+Usage: $(basename "$0") start [OPTIONS]
 
 Install system-wide visual theming (icon theme, SDDM greeter).
 
+By default, applies a dark grey background to the stock Fedora SDDM theme.
+Use --corners to install the sddm-theme-corners theme from GitHub instead.
+
 Options:
-  -h, --help    Show this help message and exit
+  --corners   Install sddm-theme-corners from GitHub (accent-colored login screen)
+  -h, --help  Show this help message and exit
 
 Examples:
-  $(basename "$0") start    Install icon theme + configure SDDM greeter
+  $(basename "$0") start              Dark background on stock SDDM theme
+  $(basename "$0") start --corners    Install corners theme with accent colors
 EOF
     exit 0
 }
+
+SDDM_CORNERS=false
 
 # Require "start" subcommand; no args or -h/--help prints usage
 if [[ $# -eq 0 ]]; then
@@ -56,6 +63,18 @@ case "$1" in
         exit 1
         ;;
 esac
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --corners)  SDDM_CORNERS=true; shift ;;
+        -h|--help)  usage ;;
+        *)
+            echo "ERROR: Unknown option: $1" >&2
+            echo "Run '$(basename "$0") --help' for usage." >&2
+            exit 1
+            ;;
+    esac
+done
 
 init_logging "theme"
 preflight_checks
@@ -81,65 +100,99 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. SDDM greeter — sddm-theme-corners
+# 2. SDDM greeter
 # ---------------------------------------------------------------------------
-# Minimal Qt6 SDDM theme with corners layout. Dark grey + accent color.
 
 info "Configuring SDDM theme..."
 
-# Dependencies for sddm-theme-corners (Qt6 greeter)
-sudo dnf install -y \
-    qt6-qt5compat \
-    qt6-qtsvg
+_SCRIPT_DIR="$(dirname "$0")"
+_SDDM_THEME_NAME=""
 
-# Install theme from GitHub if not present
-_SDDM_THEME_DIR="/usr/share/sddm/themes/corners"
-if [[ -d "$_SDDM_THEME_DIR" ]]; then
-    ok "sddm-theme-corners already installed (skipped)"
+if [[ "$SDDM_CORNERS" == true ]]; then
+    # -- sddm-theme-corners (GitHub) ------------------------------------------
+    # Minimal Qt6 theme with corners layout. Dark grey + accent color.
+
+    sudo dnf install -y \
+        qt6-qt5compat \
+        qt6-qtsvg
+
+    _SDDM_THEME_DIR="/usr/share/sddm/themes/corners"
+    if [[ -d "$_SDDM_THEME_DIR" ]]; then
+        ok "sddm-theme-corners already installed (skipped)"
+    else
+        _corners_tmp=$(mktemp -d)
+        _cleanup_files+=("$_corners_tmp")
+        git clone --depth 1 https://github.com/aczw/sddm-theme-corners.git "$_corners_tmp"
+        sudo cp -r "$_corners_tmp/corners" "$_SDDM_THEME_DIR"
+        # Fix permissions before patching — mktemp creates mode 700 dirs and
+        # cp -r preserves them, so the glob below would fail as unprivileged user.
+        sudo chmod -R a+rX "$_SDDM_THEME_DIR"
+        # Validate expected structure before patching (guards against upstream changes)
+        if compgen -G "$_SDDM_THEME_DIR/components/*.qml" >/dev/null; then
+            # Patch Qt5 → Qt6: QtGraphicalEffects was removed in Qt6
+            sudo sed -i 's/import QtGraphicalEffects.*/import Qt5Compat.GraphicalEffects/' \
+                "$_SDDM_THEME_DIR"/components/*.qml
+        else
+            warn "sddm-theme-corners: no components/*.qml found — skipping Qt6 patch"
+            warn "The upstream repo may have changed: https://github.com/aczw/sddm-theme-corners"
+        fi
+        if [[ -f "$_SDDM_THEME_DIR/Main.qml" ]]; then
+            # Set dark background color on root Rectangle (theme defaults to white)
+            sudo sed -i '/id: root/a\    color: "#222222"' "$_SDDM_THEME_DIR/Main.qml"
+        else
+            warn "sddm-theme-corners: Main.qml not found — skipping background patch"
+        fi
+        rm -rf "$_corners_tmp"
+        ok "sddm-theme-corners installed"
+    fi
+
+    # Deploy custom theme.conf from repo and apply accent colors
+    load_accent
+    _theme_tmp=$(mktemp)
+    _cleanup_files+=("$_theme_tmp")
+    cp "$_SCRIPT_DIR/../config/sddm/theme.conf" "$_theme_tmp"
+    apply_accent "$_theme_tmp"
+    sudo cp "$_theme_tmp" "$_SDDM_THEME_DIR/theme.conf"
+    sudo chmod 644 "$_SDDM_THEME_DIR/theme.conf"
+    rm -f "$_theme_tmp"
+
+    _SDDM_THEME_NAME="corners"
 else
-    _corners_tmp=$(mktemp -d)
-    _cleanup_files+=("$_corners_tmp")
-    git clone --depth 1 https://github.com/aczw/sddm-theme-corners.git "$_corners_tmp"
-    sudo cp -r "$_corners_tmp/corners" "$_SDDM_THEME_DIR"
-    # Fix permissions before patching — mktemp creates mode 700 dirs and
-    # cp -r preserves them, so the glob below would fail as unprivileged user.
-    sudo chmod -R a+rX "$_SDDM_THEME_DIR"
-    # Validate expected structure before patching (guards against upstream changes)
-    if compgen -G "$_SDDM_THEME_DIR/components/*.qml" >/dev/null; then
-        # Patch Qt5 → Qt6: QtGraphicalEffects was removed in Qt6
-        sudo sed -i 's/import QtGraphicalEffects.*/import Qt5Compat.GraphicalEffects/' \
-            "$_SDDM_THEME_DIR"/components/*.qml
+    # -- Stock Fedora Sway theme + dark grey background ------------------------
+    _SDDM_THEME_DIR="/usr/share/sddm/themes/03-sway-fedora"
+    _bg_src="$_SCRIPT_DIR/../config/sddm/background-dark-grey.png"
+    _bg_dest="$_SDDM_THEME_DIR/background-dark-grey.png"
+
+    if [[ ! -d "$_SDDM_THEME_DIR" ]]; then
+        warn "Stock SDDM theme not found at $_SDDM_THEME_DIR — is sddm installed?"
     else
-        warn "sddm-theme-corners: no components/*.qml found — skipping Qt6 patch"
-        warn "The upstream repo may have changed: https://github.com/aczw/sddm-theme-corners"
+        sudo cp "$_bg_src" "$_bg_dest"
+        sudo chmod 644 "$_bg_dest"
+        # Override background via theme.conf.user (leaves stock theme.conf untouched)
+        _user_conf_tmp=$(mktemp)
+        _cleanup_files+=("$_user_conf_tmp")
+        cat <<'USERCONF' > "$_user_conf_tmp"
+[General]
+background=background-dark-grey.png
+USERCONF
+        if ! sudo cmp -s "$_user_conf_tmp" "$_SDDM_THEME_DIR/theme.conf.user" 2>/dev/null; then
+            sudo cp "$_user_conf_tmp" "$_SDDM_THEME_DIR/theme.conf.user"
+            sudo chmod 644 "$_SDDM_THEME_DIR/theme.conf.user"
+        fi
+        rm -f "$_user_conf_tmp"
+        ok "Dark grey background applied to stock SDDM theme"
     fi
-    if [[ -f "$_SDDM_THEME_DIR/Main.qml" ]]; then
-        # Set dark background color on root Rectangle (theme defaults to white)
-        sudo sed -i '/id: root/a\    color: "#222222"' "$_SDDM_THEME_DIR/Main.qml"
-    else
-        warn "sddm-theme-corners: Main.qml not found — skipping background patch"
-    fi
-    rm -rf "$_corners_tmp"
-    ok "sddm-theme-corners installed"
+
+    _SDDM_THEME_NAME="03-sway-fedora"
 fi
 
-# Deploy custom theme.conf from repo and apply accent colors
-load_accent
-_theme_tmp=$(mktemp)
-_cleanup_files+=("$_theme_tmp")
-cp "$(dirname "$0")/../config/sddm/theme.conf" "$_theme_tmp"
-apply_accent "$_theme_tmp"
-sudo cp "$_theme_tmp" "$_SDDM_THEME_DIR/theme.conf"
-sudo chmod 644 "$_SDDM_THEME_DIR/theme.conf"
-rm -f "$_theme_tmp"
-
-# Set corners as active SDDM theme
+# Set active SDDM theme
 _sddm_conf_tmp=$(mktemp)
 _cleanup_files+=("$_sddm_conf_tmp")
-cat <<'SDDMCONF' > "$_sddm_conf_tmp"
+cat > "$_sddm_conf_tmp" <<EOF
 [Theme]
-Current=corners
-SDDMCONF
+Current=$_SDDM_THEME_NAME
+EOF
 
 sudo mkdir -p /etc/sddm.conf.d
 if ! sudo cmp -s "$_sddm_conf_tmp" /etc/sddm.conf.d/theme.conf 2>/dev/null; then
@@ -154,7 +207,7 @@ if systemctl is-enabled greetd &>/dev/null; then
 fi
 sudo systemctl enable sddm
 
-ok "SDDM + corners theme configured"
+ok "SDDM configured (theme: $_SDDM_THEME_NAME)"
 
 # ---------------------------------------------------------------------------
 # Summary

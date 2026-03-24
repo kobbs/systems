@@ -404,10 +404,10 @@ export QT_QPA_PLATFORMTHEME=kde
 export QT_STYLE_OVERRIDE=Breeze
 ENVEOF
 
-# Base Fedora may have ksshaskpass from KDE — suppress its SSH popup
-if [ "$SWAY_SPIN" = false ]; then
-    echo "unset SSH_ASKPASS" >> "$_env_tmp"
-fi
+# kde-settings ships /etc/profile.d/kde-openssh-askpass.sh which sets
+# SSH_ASKPASS=/usr/bin/ksshaskpass, but ksshaskpass is not installed.
+# This breaks git HTTPS credential prompts. Unset unconditionally.
+echo "unset SSH_ASKPASS" >> "$_env_tmp"
 
 _env_file="$HOME/.config/shell/bootstrap-env.sh"
 if ! cmp -s "$_env_tmp" "$_env_file" 2>/dev/null; then
