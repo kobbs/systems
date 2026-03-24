@@ -132,9 +132,14 @@ done
 # 2. SDDM greeter
 # ---------------------------------------------------------------------------
 
+_SCRIPT_DIR="$(dirname "$0")"
+
+if ! rpm -q sddm &>/dev/null; then
+    warn "SDDM is not installed — skipping greeter configuration"
+else
+
 info "Configuring SDDM theme..."
 
-_SCRIPT_DIR="$(dirname "$0")"
 _SDDM_THEME_NAME=""
 
 if [[ "$SDDM_CORNERS" == true ]]; then
@@ -241,6 +246,8 @@ fi
 sudo systemctl enable sddm
 
 ok "SDDM configured (theme: $_SDDM_THEME_NAME)"
+
+fi  # rpm -q sddm guard
 
 # ---------------------------------------------------------------------------
 # Summary

@@ -67,6 +67,26 @@ ensure_bashrc_source() {
 }
 
 # ---------------------------------------------------------------------------
+# find_fedora_version <url_template> [max_fallback]
+# Probes a URL pattern to find the newest Fedora version that exists.
+# Template uses {ver} as the version placeholder.
+# Echoes the first working version; returns 1 if none found.
+# ---------------------------------------------------------------------------
+find_fedora_version() {
+    local template="$1"
+    local max="${2:-3}"
+    local cur
+    cur=$(rpm -E %fedora)
+    for (( v=cur; v > cur - max; v-- )); do
+        if curl -sf --head --connect-timeout 5 "${template//\{ver\}/$v}" -o /dev/null; then
+            echo "$v"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # Accent color presets
 # ---------------------------------------------------------------------------
 # Each preset: PRIMARY DIM DARK BRIGHT SECONDARY ANSI_CODE

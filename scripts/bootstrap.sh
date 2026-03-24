@@ -271,8 +271,24 @@ ok "firewalld enabled (default zone: $(sudo firewall-cmd --get-default-zone))"
 info "Installing DevOps tooling..."
 
 # HashiCorp repo (Terraform, Packer, etc.)
+# HashiCorp may not publish packages for the latest Fedora version yet.
+# Probe backwards to find a working version, then pin $releasever in the repo file.
+_HASHI_AVAILABLE=false
 if [ ! -f /etc/yum.repos.d/hashicorp.repo ]; then
-    sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+    _hashi_ver=$(find_fedora_version \
+        "https://rpm.releases.hashicorp.com/fedora/{ver}/x86_64/stable/repodata/repomd.xml") || true
+    if [[ -n "${_hashi_ver:-}" ]]; then
+        sudo dnf config-manager addrepo \
+            --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+        sudo sed -i "s/\$releasever/$_hashi_ver/g" /etc/yum.repos.d/hashicorp.repo
+        [[ "$_hashi_ver" != "$(rpm -E %fedora)" ]] && \
+            warn "HashiCorp repo pinned to Fedora $_hashi_ver ($(rpm -E %fedora) not yet available)"
+        _HASHI_AVAILABLE=true
+    else
+        warn "HashiCorp repo unavailable for Fedora $(rpm -E %fedora) or recent versions — skipping terraform"
+    fi
+else
+    _HASHI_AVAILABLE=true
 fi
 
 # Kubernetes repo (kubectl)
@@ -296,8 +312,13 @@ sudo dnf install -y \
     kubectl \
     podman \
     podman-compose \
-    terraform \
     yq
+
+if [[ "$_HASHI_AVAILABLE" == true ]]; then
+    sudo dnf install -y terraform
+else
+    warn "terraform skipped (HashiCorp repo not available)"
+fi
 
 ok "DevOps stack installed"
 
@@ -322,11 +343,14 @@ if [ "$INSTALL_ROCM" = true ]; then
         info "Installing ROCm stack..."
 
         # AMD ROCm repo (provides rocm-hip-runtime, rocminfo, etc.)
+        # These repos use RHEL paths — Fedora's $releasever (43, 44, …) doesn't
+        # match any RHEL version, so we pin to a known RHEL release.
+        ROCM_RHEL_VER="${ROCM_RHEL_VER:-9.5}"
         if [ ! -f /etc/yum.repos.d/amdgpu.repo ]; then
             sudo tee /etc/yum.repos.d/amdgpu.repo > /dev/null <<AMDGPU
 [amdgpu]
 name=amdgpu
-baseurl=https://repo.radeon.com/amdgpu/latest/rhel/\$releasever/main/x86_64/
+baseurl=https://repo.radeon.com/amdgpu/latest/rhel/${ROCM_RHEL_VER}/main/x86_64/
 enabled=1
 gpgcheck=1
 gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
@@ -334,7 +358,7 @@ AMDGPU
             sudo tee /etc/yum.repos.d/rocm.repo > /dev/null <<ROCM
 [rocm]
 name=ROCm
-baseurl=https://repo.radeon.com/rocm/rhel9/\$releasever/main
+baseurl=https://repo.radeon.com/rocm/rhel9/${ROCM_RHEL_VER}/main
 enabled=1
 gpgcheck=1
 gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
@@ -439,7 +463,7 @@ echo ""
 echo "Next steps:"
 echo "  1. REBOOT to apply group changes and keyboard layout"
 echo "  2. Register Yubikey:  pamu2fcfg > ~/.config/Yubico/u2f_keys"
-echo "  3. Run theme.sh:     scripts/theme.sh start   (icon theme + SDDM greeter)"
+echo "  3. Run theme.sh:     scripts/theme.sh start   (icon theme + SDDM greeter if installed)"
 echo "  4. Run dotfiles.sh:  scripts/dotfiles.sh       (sway, waybar, user configs)"
 if [ "$HAS_DISCRETE_AMD_GPU" = true ] && [ "$INSTALL_ROCM" = false ]; then
     echo "  5. ROCm: re-run with --rocm to install AMD compute stack"
