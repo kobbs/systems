@@ -288,7 +288,22 @@ if [ ! -f /etc/yum.repos.d/hashicorp.repo ]; then
         warn "HashiCorp repo unavailable for Fedora $(rpm -E %fedora) or recent versions — skipping terraform"
     fi
 else
-    _HASHI_AVAILABLE=true
+    # Repo file exists — check if it still uses $releasever and fix if needed
+    if sudo grep -q '\$releasever' /etc/yum.repos.d/hashicorp.repo; then
+        _hashi_ver=$(find_fedora_version \
+            "https://rpm.releases.hashicorp.com/fedora/{ver}/x86_64/stable/repodata/repomd.xml") || true
+        if [[ -n "${_hashi_ver:-}" ]]; then
+            sudo sed -i "s/\$releasever/$_hashi_ver/g" /etc/yum.repos.d/hashicorp.repo
+            [[ "$_hashi_ver" != "$(rpm -E %fedora)" ]] && \
+                warn "HashiCorp repo pinned to Fedora $_hashi_ver ($(rpm -E %fedora) not yet available)"
+            _HASHI_AVAILABLE=true
+        else
+            warn "HashiCorp repo unavailable for current Fedora — disabling"
+            sudo dnf config-manager setopt hashicorp.enabled=0
+        fi
+    else
+        _HASHI_AVAILABLE=true
+    fi
 fi
 
 # Kubernetes repo (kubectl)
