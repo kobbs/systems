@@ -3,6 +3,7 @@
 # Dotfiles Deploy Script
 # ======================
 # Symlinks configs from this repo into ~/.config/.
+# Installs the Tela icon theme (user-local).
 # Safe to re-run: already-correct symlinks are skipped, existing files are
 # backed up with a .bak suffix.
 
@@ -15,6 +16,11 @@ CONFIG_DIR="$REPO_DIR/config"
 # shellcheck source=scripts/lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
 
+# Global cleanup — temp files register here; EXIT trap cleans them all.
+_cleanup_files=()
+_cleanup() { rm -rf "${_cleanup_files[@]}" 2>/dev/null || true; }
+trap _cleanup EXIT
+
 # ---------------------------------------------------------------------------
 # Usage
 # ---------------------------------------------------------------------------
@@ -23,8 +29,11 @@ usage() {
 Usage: $(basename "$0") start
 
 Deploy dotfiles — symlink configs from this repo into ~/.config/.
+Installs the Tela icon theme (user-local).
 Safe to re-run: already-correct symlinks are skipped, existing files are
 backed up with a .bak suffix.
+
+Sway/Waybar/Kanshi/Swaylock configs are only deployed if sway is installed.
 
 Options:
   -h, --help    Show this help message and exit
@@ -84,29 +93,38 @@ link_file() {
     ok "$dst → $src"
 }
 
-# ---------------------------------------------------------------------------
-# Sway
-# ---------------------------------------------------------------------------
-info "Deploying sway config..."
-link_file "$CONFIG_DIR/sway/config" "$HOME/.config/sway/config"
-
-# ---------------------------------------------------------------------------
-# Waybar
-# ---------------------------------------------------------------------------
-info "Deploying waybar config..."
-link_file "$CONFIG_DIR/waybar/config"    "$HOME/.config/waybar/config"
-link_file "$CONFIG_DIR/waybar/style.css" "$HOME/.config/waybar/style.css"
-link_file "$CONFIG_DIR/waybar/scripts"   "$HOME/.config/waybar/scripts"
-if compgen -G "$CONFIG_DIR/waybar/scripts/*.sh" >/dev/null 2>&1; then
-    chmod +x "$CONFIG_DIR"/waybar/scripts/*.sh
-    ok "waybar scripts marked executable"
+# Detect sway availability for conditional sections
+_HAS_SWAY=false
+if command -v sway &>/dev/null; then
+    _HAS_SWAY=true
 fi
 
 # ---------------------------------------------------------------------------
-# Kanshi
+# Sway / Waybar / Kanshi / Swaylock (only if sway is installed)
 # ---------------------------------------------------------------------------
-info "Deploying kanshi config..."
-link_file "$CONFIG_DIR/kanshi/config" "$HOME/.config/kanshi/config"
+
+if [[ "$_HAS_SWAY" == true ]]; then
+    info "Deploying sway config..."
+    link_file "$CONFIG_DIR/sway/config" "$HOME/.config/sway/config"
+
+    info "Deploying waybar config..."
+    link_file "$CONFIG_DIR/waybar/config"    "$HOME/.config/waybar/config"
+    link_file "$CONFIG_DIR/waybar/style.css" "$HOME/.config/waybar/style.css"
+    link_file "$CONFIG_DIR/waybar/scripts"   "$HOME/.config/waybar/scripts"
+    if compgen -G "$CONFIG_DIR/waybar/scripts/*.sh" >/dev/null 2>&1; then
+        chmod +x "$CONFIG_DIR"/waybar/scripts/*.sh
+        ok "waybar scripts marked executable"
+    fi
+
+    info "Deploying kanshi config..."
+    link_file "$CONFIG_DIR/kanshi/config" "$HOME/.config/kanshi/config"
+
+    info "Deploying swaylock config..."
+    mkdir -p "$HOME/.config/swaylock"
+    link_file "$CONFIG_DIR/swaylock/config" "$HOME/.config/swaylock/config"
+else
+    info "Sway not installed — skipping Sway/Waybar/Kanshi/Swaylock configs"
+fi
 
 # ---------------------------------------------------------------------------
 # GTK theming (single source file for both GTK 3 and GTK 4)
@@ -141,13 +159,6 @@ grep -qF "prompt.sh" "$HOME/.bashrc" 2>/dev/null \
 ok "Bash prompt configured (takes effect in new shells)"
 
 # ---------------------------------------------------------------------------
-# Swaylock
-# ---------------------------------------------------------------------------
-info "Deploying swaylock config..."
-mkdir -p "$HOME/.config/swaylock"
-link_file "$CONFIG_DIR/swaylock/config" "$HOME/.config/swaylock/config"
-
-# ---------------------------------------------------------------------------
 # Dunst
 # ---------------------------------------------------------------------------
 info "Deploying dunst config..."
@@ -167,22 +178,69 @@ info "Deploying tmux config..."
 link_file "$CONFIG_DIR/tmux/tmux.conf" "$HOME/.config/tmux/tmux.conf"
 
 # ---------------------------------------------------------------------------
+# Icon theme (Tela, user-local — color follows ACCENT)
+# ---------------------------------------------------------------------------
+# Installed to ~/.local/share/icons so no sudo is needed.
+# GTK and KDE apps find it via the standard XDG icon search path.
+
+load_accent
+require_cmd git "sudo dnf install -y git"
+
+_tela_dir="$HOME/.local/share/icons/Tela-${ACCENT_NAME}"
+_need_install=false
+
+if [[ ! -d "$_tela_dir" ]]; then
+    _need_install=true
+elif [[ -f "$_tela_dir/scalable/places/default-folder.svg" ]]; then
+    # Verify the installed theme actually has the right accent color.
+    # The Tela installer replaces #5294e2 (default blue) with the accent color.
+    # If the folder SVG still contains the default blue, the install was wrong.
+    if [[ "$ACCENT_NAME" != "standard" ]] \
+        && grep -qi '#5294e2' "$_tela_dir/scalable/places/default-folder.svg"; then
+        warn "Tela-${ACCENT_NAME} contains default blue icons — reinstalling..."
+        rm -rf "$_tela_dir" "${_tela_dir}-dark" "${_tela_dir}-light"
+        _need_install=true
+    fi
+else
+    # Directory exists but is missing expected files — corrupt install
+    warn "Tela-${ACCENT_NAME} is incomplete — reinstalling..."
+    rm -rf "$_tela_dir" "${_tela_dir}-dark" "${_tela_dir}-light"
+    _need_install=true
+fi
+
+if [[ "$_need_install" == true ]]; then
+    info "Installing Tela ${ACCENT_NAME} icon theme (user-local)..."
+    _tela_tmp=$(mktemp -d)
+    _cleanup_files+=("$_tela_tmp")
+    git clone --depth 1 https://github.com/vinceliuice/Tela-icon-theme.git "$_tela_tmp"
+    bash "$_tela_tmp/install.sh" -d "$HOME/.local/share/icons" "$ACCENT_NAME"
+    rm -rf "$_tela_tmp"
+    ok "Tela ${ACCENT_NAME} icon theme installed"
+else
+    ok "Tela ${ACCENT_NAME} icon theme already installed (skipped)"
+fi
+
+# ---------------------------------------------------------------------------
 # Apply accent color
 # ---------------------------------------------------------------------------
-load_accent
 info "Applying accent color: $ACCENT_NAME (${ACCENT_PRIMARY})..."
 
 _accent_files=(
-    "$CONFIG_DIR/sway/config"
-    "$CONFIG_DIR/waybar/style.css"
     "$CONFIG_DIR/kitty/kitty.conf"
     "$CONFIG_DIR/tmux/tmux.conf"
     "$CONFIG_DIR/dunst/dunstrc"
-    "$CONFIG_DIR/swaylock/config"
     "$CONFIG_DIR/sddm/theme.conf"
     "$CONFIG_DIR/gtk/settings.ini"
     "$CONFIG_DIR/kde/kdeglobals"   # hex colors won't match (RGB triplets), but Tela-<preset> will
 )
+
+if [[ "$_HAS_SWAY" == true ]]; then
+    _accent_files+=(
+        "$CONFIG_DIR/sway/config"
+        "$CONFIG_DIR/waybar/style.css"
+        "$CONFIG_DIR/swaylock/config"
+    )
+fi
 
 for _af in "${_accent_files[@]}"; do
     apply_accent "$_af"
@@ -207,10 +265,12 @@ echo "  Log: $LOG"
 echo "============================================"
 echo ""
 echo "Next steps:"
-echo "  1. Reload sway config:   Super+Shift+C"
-echo "  2. Or restart sway:      Super+Shift+E → restart"
-echo "  3. Add kanshi profile for this machine if needed:"
-echo "       swaymsg -t get_outputs"
-echo "       # then edit: $CONFIG_DIR/kanshi/config"
+if [[ "$_HAS_SWAY" == true ]]; then
+    echo "  1. Reload sway config:   Super+Shift+C"
+    echo "  2. Or restart sway:      Super+Shift+E → restart"
+    echo "  3. Add kanshi profile for this machine if needed:"
+    echo "       swaymsg -t get_outputs"
+    echo "       # then edit: $CONFIG_DIR/kanshi/config"
+fi
 echo "  4. Reload shell prompt:  source ~/.bashrc"
 echo ""

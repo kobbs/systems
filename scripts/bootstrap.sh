@@ -2,7 +2,7 @@
 
 # Fedora Bootstrap Script
 # =======================
-# Target: AMD GPU, Sway/Wayland, DevOps Tooling
+# Target: AMD GPU, Sway/Wayland
 # Machines: Home desktop, work laptop, personal laptop
 # System repos, packages, and system-level config only.
 # User-level configs (sway, waybar, dotfiles) are handled by dotfiles.sh.
@@ -39,16 +39,14 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") start [OPTIONS]
 
-Bootstrap a Fedora system with Sway/Wayland, DevOps tooling, and optionally ROCm.
+Bootstrap a Fedora system with Sway/Wayland and optionally ROCm.
+DevOps tooling is handled separately by apps.sh --devops.
 
 Options:
   --sway-spin       Force Sway Spin mode (skip core Sway packages already in the spin)
   --kde-spin        Force KDE Spin mode (install full Sway stack)
   --rocm            Install ROCm stack for AMD GPU compute (requires discrete AMD GPU)
   -h, --help        Show this help message and exit
-
-Environment variables:
-  K8S_VERSION   Kubernetes repo channel (default: v1.34)
 
 Examples:
   $(basename "$0") start                        Auto-detect mode, skip ROCm
@@ -62,9 +60,6 @@ EOF
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
-
-# Version pins — override via environment if needed
-K8S_VERSION="${K8S_VERSION:-v1.34}"   # Kubernetes repo channel
 
 INSTALL_ROCM=false
 _force_mode=""
@@ -208,9 +203,11 @@ ok "Flathub ready"
 
 # Packages needed on both base Fedora and Sway Spin (sorted alphabetically)
 SWAY_COMMON_PKGS=(
+    bat
     bemenu
     bluez
     google-roboto-mono-fonts
+    jq
     kitty
     libnotify
     mate-polkit
@@ -218,13 +215,13 @@ SWAY_COMMON_PKGS=(
     network-manager-applet
     pavucontrol
     plasma-integration
+    podman
     qt5ct
     qt6ct
     tuned
     tuned-ppd
-    vulkan-tools
-    bat
     vim
+    vulkan-tools
 )
 
 if [ "$SWAY_SPIN" = true ]; then
@@ -265,80 +262,7 @@ sudo systemctl enable --now firewalld
 ok "firewalld enabled (default zone: $(sudo firewall-cmd --get-default-zone))"
 
 # ---------------------------------------------------------------------------
-# 5. DevOps Stack
-# ---------------------------------------------------------------------------
-
-info "Installing DevOps tooling..."
-
-# HashiCorp repo (Terraform, Packer, etc.)
-# HashiCorp may not publish packages for the latest Fedora version yet.
-# Probe backwards to find a working version, then pin $releasever in the repo file.
-_HASHI_AVAILABLE=false
-if [ ! -f /etc/yum.repos.d/hashicorp.repo ]; then
-    _hashi_ver=$(find_fedora_version \
-        "https://rpm.releases.hashicorp.com/fedora/{ver}/x86_64/stable/repodata/repomd.xml") || true
-    if [[ -n "${_hashi_ver:-}" ]]; then
-        sudo dnf config-manager addrepo \
-            --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
-        sudo sed -i "s/\$releasever/$_hashi_ver/g" /etc/yum.repos.d/hashicorp.repo
-        [[ "$_hashi_ver" != "$(rpm -E %fedora)" ]] && \
-            warn "HashiCorp repo pinned to Fedora $_hashi_ver ($(rpm -E %fedora) not yet available)"
-        _HASHI_AVAILABLE=true
-    else
-        warn "HashiCorp repo unavailable for Fedora $(rpm -E %fedora) or recent versions — skipping terraform"
-    fi
-else
-    # Repo file exists — check if it still uses $releasever and fix if needed
-    if sudo grep -q '\$releasever' /etc/yum.repos.d/hashicorp.repo; then
-        _hashi_ver=$(find_fedora_version \
-            "https://rpm.releases.hashicorp.com/fedora/{ver}/x86_64/stable/repodata/repomd.xml") || true
-        if [[ -n "${_hashi_ver:-}" ]]; then
-            sudo sed -i "s/\$releasever/$_hashi_ver/g" /etc/yum.repos.d/hashicorp.repo
-            [[ "$_hashi_ver" != "$(rpm -E %fedora)" ]] && \
-                warn "HashiCorp repo pinned to Fedora $_hashi_ver ($(rpm -E %fedora) not yet available)"
-            _HASHI_AVAILABLE=true
-        else
-            warn "HashiCorp repo unavailable for current Fedora — disabling"
-            sudo dnf config-manager setopt hashicorp.enabled=0
-        fi
-    else
-        _HASHI_AVAILABLE=true
-    fi
-fi
-
-# Kubernetes repo (kubectl)
-if [ ! -f /etc/yum.repos.d/kubernetes.repo ]; then
-    cat <<KREPO | sudo tee /etc/yum.repos.d/kubernetes.repo > /dev/null
-[kubernetes]
-name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/${K8S_VERSION}/rpm/
-enabled=1
-gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/${K8S_VERSION}/rpm/repodata/repomd.xml.key
-KREPO
-    sudo chmod 644 /etc/yum.repos.d/kubernetes.repo
-fi
-
-sudo dnf install -y \
-    ansible \
-    helm \
-    jq \
-    kind \
-    kubectl \
-    podman \
-    podman-compose \
-    yq
-
-if [[ "$_HASHI_AVAILABLE" == true ]]; then
-    sudo dnf install -y terraform
-else
-    warn "terraform skipped (HashiCorp repo not available)"
-fi
-
-ok "DevOps stack installed"
-
-# ---------------------------------------------------------------------------
-# 6. ROCm / AI Workloads
+# 5. ROCm / AI Workloads
 # ---------------------------------------------------------------------------
 # GPU group membership is always configured when a discrete AMD GPU is present.
 # The full ROCm stack (runtime, HIP, libraries) is installed only with --rocm.
@@ -393,7 +317,7 @@ ROCM
 fi
 
 # ---------------------------------------------------------------------------
-# 7. Security (Yubikey tooling)
+# 6. Security (Yubikey tooling)
 # ---------------------------------------------------------------------------
 
 info "Installing Yubikey tooling..."
@@ -403,7 +327,7 @@ ok "Yubikey tools installed"
 # PAM integration (authselect / pam.d edits) is deferred to dotfiles.sh.
 
 # ---------------------------------------------------------------------------
-# 8. Essential CLI Tools
+# 7. Essential CLI Tools
 # ---------------------------------------------------------------------------
 
 info "Installing essential CLI utilities..."
@@ -422,7 +346,7 @@ sudo dnf install -y \
 ok "CLI tools installed"
 
 # ---------------------------------------------------------------------------
-# 9. Shell Environment (idempotent)
+# 8. Shell Environment (idempotent)
 # ---------------------------------------------------------------------------
 
 info "Configuring shell environment..."
@@ -458,7 +382,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 10. Keyboard Layout (system-wide default)
+# 9. Keyboard Layout (system-wide default)
 # ---------------------------------------------------------------------------
 
 info "Setting default keyboard layout to FR..."
@@ -478,9 +402,13 @@ echo ""
 echo "Next steps:"
 echo "  1. REBOOT to apply group changes and keyboard layout"
 echo "  2. Register Yubikey:  pamu2fcfg > ~/.config/Yubico/u2f_keys"
-echo "  3. Run theme.sh:     scripts/theme.sh start   (icon theme + SDDM greeter if installed)"
-echo "  4. Run dotfiles.sh:  scripts/dotfiles.sh       (sway, waybar, user configs)"
+echo "  3. Run dotfiles.sh:  scripts/dotfiles.sh start  (configs, icon theme)"
+echo "  4. Run apps.sh:      scripts/apps.sh start       (user apps)"
+echo "     DevOps tools:     scripts/apps.sh start --devops"
+if rpm -q sddm &>/dev/null; then
+    echo "  5. SDDM theming:    scripts/theme-sddm.sh start"
+fi
 if [ "$HAS_DISCRETE_AMD_GPU" = true ] && [ "$INSTALL_ROCM" = false ]; then
-    echo "  5. ROCm: re-run with --rocm to install AMD compute stack"
+    echo "  6. ROCm: re-run with --rocm to install AMD compute stack"
 fi
 echo ""

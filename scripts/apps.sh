@@ -14,6 +14,7 @@ source "$(dirname "$0")/lib/common.sh"
 
 # Version pins — override via environment if needed
 PROTON_RPM="${PROTON_RPM:-protonvpn-stable-release-1.0.1-2.noarch.rpm}"
+K8S_VERSION="${K8S_VERSION:-v1.34}"   # Kubernetes repo channel
 
 # ---------------------------------------------------------------------------
 # Usage / argument parsing
@@ -26,22 +27,27 @@ Usage: $(basename "$0") start [OPTIONS]
 Install user-facing applications.
 
 Options:
+  --devops      Install DevOps tooling (Terraform, Ansible, Helm, kubectl, …)
   --gtk-apps    Install GTK desktop utilities (Thunar, Evince, GNOME Calculator, …)
   --qt-apps     Install Qt/KDE desktop utilities (Dolphin, Okular, KCalc, …)
   -h, --help    Show this help message and exit
 
 Flags --gtk-apps and --qt-apps are mutually exclusive.
-If neither is passed, no desktop utilities are installed (backward-compatible).
+--devops can be combined with either.
+
+Environment variables:
+  K8S_VERSION   Kubernetes repo channel (default: v1.34)
 
 Examples:
-  $(basename "$0") start                    Install apps (no desktop utilities)
-  $(basename "$0") start --gtk-apps         Install apps + GTK desktop utilities
-  $(basename "$0") start --qt-apps          Install apps + Qt/KDE desktop utilities
+  $(basename "$0") start                    Install apps (no extras)
+  $(basename "$0") start --devops           Install apps + DevOps tooling
+  $(basename "$0") start --qt-apps --devops Install apps + Qt utilities + DevOps
 EOF
     exit 0
 }
 
 DESKTOP_TOOLKIT=""
+INSTALL_DEVOPS=false
 
 # Require "start" subcommand; no args or -h/--help prints usage
 if [[ $# -eq 0 ]]; then
@@ -59,6 +65,7 @@ esac
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --devops)   INSTALL_DEVOPS=true; shift ;;
         --gtk-apps)
             [[ -n "$DESKTOP_TOOLKIT" ]] && { echo "ERROR: --gtk-apps and --qt-apps are mutually exclusive." >&2; exit 1; }
             DESKTOP_TOOLKIT="gtk"; shift ;;
@@ -280,6 +287,80 @@ if [[ -n "$DESKTOP_TOOLKIT" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 11. DevOps Tooling (optional — requires --devops)
+# ---------------------------------------------------------------------------
+# Third-party repos (HashiCorp, Kubernetes) may not support the latest Fedora
+# version yet. The find_fedora_version helper probes backwards to find a
+# working version and pins $releasever in the repo file.
+
+if [[ "$INSTALL_DEVOPS" == true ]]; then
+    info "Installing DevOps tooling..."
+
+    # HashiCorp repo (Terraform, Packer, etc.)
+    _HASHI_AVAILABLE=false
+    if [ ! -f /etc/yum.repos.d/hashicorp.repo ]; then
+        _hashi_ver=$(find_fedora_version \
+            "https://rpm.releases.hashicorp.com/fedora/{ver}/x86_64/stable/repodata/repomd.xml") || true
+        if [[ -n "${_hashi_ver:-}" ]]; then
+            sudo dnf config-manager addrepo \
+                --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+            sudo sed -i "s/\$releasever/$_hashi_ver/g" /etc/yum.repos.d/hashicorp.repo
+            [[ "$_hashi_ver" != "$(rpm -E %fedora)" ]] && \
+                warn "HashiCorp repo pinned to Fedora $_hashi_ver ($(rpm -E %fedora) not yet available)"
+            _HASHI_AVAILABLE=true
+        else
+            warn "HashiCorp repo unavailable for Fedora $(rpm -E %fedora) or recent versions — skipping terraform"
+        fi
+    else
+        # Repo file exists — check if it still uses $releasever and fix if needed
+        if sudo grep -q '\$releasever' /etc/yum.repos.d/hashicorp.repo; then
+            _hashi_ver=$(find_fedora_version \
+                "https://rpm.releases.hashicorp.com/fedora/{ver}/x86_64/stable/repodata/repomd.xml") || true
+            if [[ -n "${_hashi_ver:-}" ]]; then
+                sudo sed -i "s/\$releasever/$_hashi_ver/g" /etc/yum.repos.d/hashicorp.repo
+                [[ "$_hashi_ver" != "$(rpm -E %fedora)" ]] && \
+                    warn "HashiCorp repo pinned to Fedora $_hashi_ver ($(rpm -E %fedora) not yet available)"
+                _HASHI_AVAILABLE=true
+            else
+                warn "HashiCorp repo unavailable for current Fedora — disabling"
+                sudo dnf config-manager setopt hashicorp.enabled=0
+            fi
+        else
+            _HASHI_AVAILABLE=true
+        fi
+    fi
+
+    # Kubernetes repo (kubectl)
+    if [ ! -f /etc/yum.repos.d/kubernetes.repo ]; then
+        cat <<KREPO | sudo tee /etc/yum.repos.d/kubernetes.repo > /dev/null
+[kubernetes]
+name=Kubernetes
+baseurl=https://pkgs.k8s.io/core:/stable:/${K8S_VERSION}/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://pkgs.k8s.io/core:/stable:/${K8S_VERSION}/rpm/repodata/repomd.xml.key
+KREPO
+        sudo chmod 644 /etc/yum.repos.d/kubernetes.repo
+    fi
+
+    sudo dnf install -y \
+        ansible \
+        helm \
+        kind \
+        kubectl \
+        podman-compose \
+        yq
+
+    if [[ "$_HASHI_AVAILABLE" == true ]]; then
+        sudo dnf install -y terraform
+    else
+        warn "terraform skipped (HashiCorp repo not available)"
+    fi
+
+    ok "DevOps stack installed"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
@@ -306,6 +387,9 @@ if [[ -n "$DESKTOP_TOOLKIT" ]]; then
     else
         echo " 11. Desktop utils — dolphin, okular, kcalc, gwenview, haruna, ark"
     fi
+fi
+if [[ "$INSTALL_DEVOPS" == true ]]; then
+    echo " 12. DevOps — terraform version, kubectl version, ansible --version, helm version"
 fi
 echo ""
 echo "NOTE: Log out and back in for libvirt group membership to take effect."

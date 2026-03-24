@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Fedora Theme Setup
-# ==================
-# Installs system-wide visual theming: icon theme and SDDM greeter.
+# SDDM Greeter Setup
+# ===================
+# Configures the SDDM login screen theme. Skips if SDDM is not installed.
 # Run after bootstrap.sh (needs git, sudo). Run as a regular user.
 
 set -euo pipefail
@@ -32,7 +32,7 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") start [OPTIONS]
 
-Install system-wide visual theming (icon theme, SDDM greeter).
+Configure the SDDM login screen theme. Skips if SDDM is not installed.
 
 By default, applies a dark grey background to the stock Fedora SDDM theme.
 Use --corners to install the sddm-theme-corners theme from GitHub instead.
@@ -76,69 +76,24 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-init_logging "theme"
+init_logging "theme-sddm"
 preflight_checks
 require_cmd git "sudo dnf install -y git"
 
 # ---------------------------------------------------------------------------
-# 1. Icon theme (Tela, system-wide — color follows ACCENT)
+# SDDM greeter
 # ---------------------------------------------------------------------------
-# Installed system-wide so the SDDM greeter (runs as "sddm" user) can
-# also use it. No Fedora package available — installed from GitHub.
 
-load_accent
-
-_tela_dir="/usr/share/icons/Tela-${ACCENT_NAME}"
-_need_install=false
-
-if [[ ! -d "$_tela_dir" ]]; then
-    _need_install=true
-elif sudo test -f "$_tela_dir/scalable/places/default-folder.svg"; then
-    # Verify the installed theme actually has the right accent color.
-    # The Tela installer replaces #5294e2 (default blue) with the accent color.
-    # If the folder SVG still contains the default blue, the install was wrong.
-    if [[ "$ACCENT_NAME" != "standard" ]] \
-        && sudo grep -qi '#5294e2' "$_tela_dir/scalable/places/default-folder.svg"; then
-        warn "Tela-${ACCENT_NAME} contains default blue icons — reinstalling..."
-        sudo rm -rf "$_tela_dir" "${_tela_dir}-dark" "${_tela_dir}-light"
-        _need_install=true
-    fi
-else
-    # Directory exists but is missing expected files — corrupt install
-    warn "Tela-${ACCENT_NAME} is incomplete — reinstalling..."
-    sudo rm -rf "$_tela_dir" "${_tela_dir}-dark" "${_tela_dir}-light"
-    _need_install=true
+if ! rpm -q sddm &>/dev/null; then
+    warn "SDDM is not installed — nothing to do"
+    exit 0
 fi
-
-if [[ "$_need_install" == true ]]; then
-    info "Installing Tela ${ACCENT_NAME} icon theme (system-wide)..."
-    _tela_tmp=$(mktemp -d)
-    _cleanup_files+=("$_tela_tmp")
-    git clone --depth 1 https://github.com/vinceliuice/Tela-icon-theme.git "$_tela_tmp"
-    sudo bash "$_tela_tmp/install.sh" -d /usr/share/icons "$ACCENT_NAME"
-    rm -rf "$_tela_tmp"
-    ok "Tela ${ACCENT_NAME} icon theme installed"
-else
-    ok "Tela ${ACCENT_NAME} icon theme already installed (skipped)"
-fi
-
-# Fix permissions — the Tela installer uses cp -r from a mktemp dir (mode 700),
-# so subdirectories inherit restricted permissions. Same pattern as corners theme.
-for _variant in "$_tela_dir" "${_tela_dir}-dark" "${_tela_dir}-light"; do
-    [[ -d "$_variant" ]] && sudo chmod -R a+rX "$_variant"
-done
-
-# ---------------------------------------------------------------------------
-# 2. SDDM greeter
-# ---------------------------------------------------------------------------
 
 _SCRIPT_DIR="$(dirname "$0")"
 
-if ! rpm -q sddm &>/dev/null; then
-    warn "SDDM is not installed — skipping greeter configuration"
-else
-
 info "Configuring SDDM theme..."
+
+load_accent
 
 _SDDM_THEME_NAME=""
 
@@ -185,7 +140,6 @@ if [[ "$SDDM_CORNERS" == true ]]; then
     fi
 
     # Deploy custom theme.conf from repo and apply accent colors
-    load_accent
     _theme_tmp=$(mktemp)
     _cleanup_files+=("$_theme_tmp")
     cp "$_SCRIPT_DIR/../config/sddm/theme.conf" "$_theme_tmp"
@@ -247,15 +201,13 @@ sudo systemctl enable sddm
 
 ok "SDDM configured (theme: $_SDDM_THEME_NAME)"
 
-fi  # rpm -q sddm guard
-
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
 echo ""
 echo "============================================"
-echo "  Theme setup complete!"
+echo "  SDDM setup complete!"
 echo "  Log: $LOG"
 echo "============================================"
 echo ""
