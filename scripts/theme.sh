@@ -87,9 +87,30 @@ require_cmd git "sudo dnf install -y git"
 # also use it. No Fedora package available — installed from GitHub.
 
 load_accent
-if [[ -d "/usr/share/icons/Tela-${ACCENT_NAME}" ]]; then
-    ok "Tela ${ACCENT_NAME} icon theme already installed (skipped)"
+
+_tela_dir="/usr/share/icons/Tela-${ACCENT_NAME}"
+_need_install=false
+
+if [[ ! -d "$_tela_dir" ]]; then
+    _need_install=true
+elif sudo test -f "$_tela_dir/scalable/places/default-folder.svg"; then
+    # Verify the installed theme actually has the right accent color.
+    # The Tela installer replaces #5294e2 (default blue) with the accent color.
+    # If the folder SVG still contains the default blue, the install was wrong.
+    if [[ "$ACCENT_NAME" != "standard" ]] \
+        && sudo grep -qi '#5294e2' "$_tela_dir/scalable/places/default-folder.svg"; then
+        warn "Tela-${ACCENT_NAME} contains default blue icons — reinstalling..."
+        sudo rm -rf "$_tela_dir" "${_tela_dir}-dark" "${_tela_dir}-light"
+        _need_install=true
+    fi
 else
+    # Directory exists but is missing expected files — corrupt install
+    warn "Tela-${ACCENT_NAME} is incomplete — reinstalling..."
+    sudo rm -rf "$_tela_dir" "${_tela_dir}-dark" "${_tela_dir}-light"
+    _need_install=true
+fi
+
+if [[ "$_need_install" == true ]]; then
     info "Installing Tela ${ACCENT_NAME} icon theme (system-wide)..."
     _tela_tmp=$(mktemp -d)
     _cleanup_files+=("$_tela_tmp")
@@ -97,7 +118,15 @@ else
     sudo bash "$_tela_tmp/install.sh" -d /usr/share/icons "$ACCENT_NAME"
     rm -rf "$_tela_tmp"
     ok "Tela ${ACCENT_NAME} icon theme installed"
+else
+    ok "Tela ${ACCENT_NAME} icon theme already installed (skipped)"
 fi
+
+# Fix permissions — the Tela installer uses cp -r from a mktemp dir (mode 700),
+# so subdirectories inherit restricted permissions. Same pattern as corners theme.
+for _variant in "$_tela_dir" "${_tela_dir}-dark" "${_tela_dir}-light"; do
+    [[ -d "$_variant" ]] && sudo chmod -R a+rX "$_variant"
+done
 
 # ---------------------------------------------------------------------------
 # 2. SDDM greeter
