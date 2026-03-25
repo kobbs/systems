@@ -11,6 +11,7 @@ scripts/              Automation
   bootstrap.sh        System packages, repos, env vars
   dotfiles.sh         Symlink config/ into ~/.config/, install icon theme
   apps.sh             User-facing applications + DevOps tooling (--devops)
+  audit.sh            Package audit report (read-only, generates /var/tmp/pkg-audit-*.txt)
   theme-sddm.sh      SDDM greeter theming (skips if SDDM not installed)
   lib/common.sh       Shared helpers (logging, preflight, find_fedora_version)
 

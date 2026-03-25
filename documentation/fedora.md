@@ -520,18 +520,17 @@ The following `theme.conf` keys use the accent color:
 sudo sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/corners
 ```
 
-## Disk cleanup
+## Package audit
 
 ### Audit installed packages
 
-The repo includes `scripts/cleanup.sh` for reviewing and removing unused packages:
+The repo includes `scripts/audit.sh` for reviewing installed packages against the managed manifests:
 
 ```bash
-scripts/cleanup.sh audit                        # generate /var/tmp/pkg-audit-YYYYMMDD.txt
-scripts/cleanup.sh remove <pkg>...              # review deps + dry-run before removing
+scripts/audit.sh                                # generate /var/tmp/pkg-audit-YYYYMMDD.txt
 ```
 
-The audit cross-references installed packages against `bootstrap.sh` and `apps.sh`, categorizing them as repo-managed (keep), leaf candidates (safe to review), or packages with dependents (cascade risk).
+The report cross-references installed leaf packages and flatpaks against the manifests written by `bootstrap.sh` and `apps.sh`, tagging each as `[managed]` or `[extra]`.
 
 ### Find large packages
 

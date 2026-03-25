@@ -158,7 +158,7 @@ info "Host: $_target_hostname | Discrete AMD GPU detected: $HAS_DISCRETE_AMD_GPU
 
 info "Updating system packages..."
 sudo dnf update -y
-sudo dnf install -y dnf-plugins-core
+pkg_install dnf-plugins-core
 ok "System updated"
 
 # ---------------------------------------------------------------------------
@@ -193,7 +193,7 @@ ok "RPM Fusion + multimedia configured"
 # ---------------------------------------------------------------------------
 
 info "Ensuring Flathub is configured..."
-sudo dnf install -y flatpak
+pkg_install flatpak
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 ok "Flathub ready"
 
@@ -230,14 +230,14 @@ if [ "$SWAY_SPIN" = true ]; then
     # Only install what's missing from the spin.
     # mate-polkit (in SWAY_COMMON_PKGS) replaces polkit-gnome for USB/device auth prompts.
     info "Installing Sway extras (beyond Sway Spin defaults)..."
-    sudo dnf install -y "${SWAY_COMMON_PKGS[@]}"
+    pkg_install "${SWAY_COMMON_PKGS[@]}"
     ok "Sway extras installed"
 else
     info "Installing Sway and Wayland tools..."
     # Core Sway/Wayland stack (not present on base Fedora)
     # xdg-desktop-portal-wlr works alongside xdg-desktop-portal-kde;
     # the active portal is selected at runtime based on the running session.
-    sudo dnf install -y \
+    pkg_install \
         "${SWAY_COMMON_PKGS[@]}" \
         grim \
         kanshi \
@@ -305,7 +305,7 @@ ROCM
             sudo chmod 644 /etc/yum.repos.d/amdgpu.repo /etc/yum.repos.d/rocm.repo
         fi
 
-        sudo dnf install -y \
+        pkg_install \
             rocm-hip-runtime \
             rocm-opencl-runtime \
             rocm-smi-lib \
@@ -321,7 +321,7 @@ fi
 # ---------------------------------------------------------------------------
 
 info "Installing Yubikey tooling..."
-sudo dnf install -y pam-u2f yubikey-manager
+pkg_install pam-u2f yubikey-manager
 mkdir -p "$HOME/.config/Yubico"
 ok "Yubikey tools installed"
 # PAM integration (authselect / pam.d edits) is deferred to dotfiles.sh.
@@ -331,7 +331,7 @@ ok "Yubikey tools installed"
 # ---------------------------------------------------------------------------
 
 info "Installing essential CLI utilities..."
-sudo dnf install -y \
+pkg_install \
     btop \
     curl \
     fd-find \

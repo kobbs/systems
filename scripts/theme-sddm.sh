@@ -101,7 +101,7 @@ if [[ "$SDDM_CORNERS" == true ]]; then
     # -- sddm-theme-corners (GitHub) ------------------------------------------
     # Minimal Qt6 theme with corners layout. Dark grey + accent color.
 
-    sudo dnf install -y \
+    pkg_install \
         qt6-qt5compat \
         qt6-qtsvg
 

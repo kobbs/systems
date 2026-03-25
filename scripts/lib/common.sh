@@ -54,6 +54,26 @@ require_cmd() {
 }
 
 # ---------------------------------------------------------------------------
+# Package manifest paths — used by pkg_install and audit.sh
+# ---------------------------------------------------------------------------
+PKG_MANIFEST="$HOME/.config/shell/.pkg-manifest"
+FLATPAK_MANIFEST="$HOME/.config/shell/.flatpak-manifest"
+
+# ---------------------------------------------------------------------------
+# pkg_install <pkg>...
+# Installs RPM packages via dnf and records them in the package manifest.
+# ---------------------------------------------------------------------------
+pkg_install() {
+    sudo dnf install -y "$@"
+    mkdir -p "$(dirname "$PKG_MANIFEST")"
+    local pkg
+    for pkg in "$@"; do
+        [[ "$pkg" == -* || "$pkg" == */* ]] && continue
+        grep -qFx "$pkg" "$PKG_MANIFEST" 2>/dev/null || echo "$pkg" >> "$PKG_MANIFEST"
+    done
+}
+
+# ---------------------------------------------------------------------------
 # ensure_bashrc_source
 # Sources a dedicated env file from .bashrc, idempotently.
 # ---------------------------------------------------------------------------

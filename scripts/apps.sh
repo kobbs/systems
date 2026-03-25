@@ -96,6 +96,8 @@ require_cmd flatpak "sudo dnf install -y flatpak"
 
 flatpak_install() {
     flatpak install --user -y flathub "$1"
+    mkdir -p "$(dirname "$FLATPAK_MANIFEST")"
+    grep -qFx "$1" "$FLATPAK_MANIFEST" 2>/dev/null || echo "$1" >> "$FLATPAK_MANIFEST"
 }
 
 # ---------------------------------------------------------------------------
@@ -107,7 +109,7 @@ flatpak_install() {
 
 info "Installing browsers..."
 
-sudo dnf install -y firefox
+pkg_install firefox
 
 # Enable native Wayland rendering for Firefox in Sway.
 # grep -xF matches the exact line, preventing false positives on substrings.
@@ -123,7 +125,7 @@ if [[ ! -f /etc/yum.repos.d/brave-browser.repo ]]; then
     sudo dnf config-manager addrepo \
         --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
 fi
-sudo dnf install -y brave-browser
+pkg_install brave-browser
 
 ok "Browsers installed"
 
@@ -149,7 +151,7 @@ ok "EasyEffects installed"
 # These packages add Vulkan, VDPAU, and VA-API verification tooling.
 
 info "Installing Mesa/AMD acceleration packages..."
-sudo dnf install -y \
+pkg_install \
     libva-utils \
     mesa-vdpau-drivers-freeworld \
     mesa-vulkan-drivers
@@ -174,7 +176,7 @@ ok "Slack and Signal installed"
 # RPM — integrates cleanly with system file manager and tray.
 
 info "Installing Nextcloud desktop client..."
-sudo dnf install -y nextcloud-client
+pkg_install nextcloud-client
 ok "Nextcloud client installed"
 
 # ---------------------------------------------------------------------------
@@ -214,7 +216,7 @@ else
         [ "$(rpm -E %fedora)" -ne "$FEDORA_VER" ] && \
             warn "Using ProtonVPN repo from a different Fedora release: $PROTON_URL"
         sudo dnf install -y "$PROTON_URL"
-        sudo dnf install -y proton-vpn-gtk-app
+        pkg_install proton-vpn-gtk-app
         ok "ProtonVPN installed"
     fi
 fi
@@ -227,7 +229,7 @@ fi
 # but keeping all three as RPM is simplest.
 
 info "Installing KeePassXC..."
-sudo dnf install -y keepassxc
+pkg_install keepassxc
 ok "KeePassXC installed"
 
 # ---------------------------------------------------------------------------
@@ -235,7 +237,7 @@ ok "KeePassXC installed"
 # ---------------------------------------------------------------------------
 
 info "Installing KVM / virt-manager..."
-sudo dnf install -y \
+pkg_install \
     libvirt \
     libvirt-daemon-config-network \
     qemu-kvm \
@@ -265,7 +267,7 @@ fi
 if [[ -n "$DESKTOP_TOOLKIT" ]]; then
     if [[ "$DESKTOP_TOOLKIT" == "gtk" ]]; then
         info "Installing GTK desktop utilities..."
-        sudo dnf install -y \
+        pkg_install \
             celluloid \
             evince \
             file-roller \
@@ -275,7 +277,7 @@ if [[ -n "$DESKTOP_TOOLKIT" ]]; then
         ok "GTK desktop utilities installed"
     else
         info "Installing Qt/KDE desktop utilities..."
-        sudo dnf install -y \
+        pkg_install \
             ark \
             dolphin \
             gwenview \
@@ -343,7 +345,7 @@ KREPO
         sudo chmod 644 /etc/yum.repos.d/kubernetes.repo
     fi
 
-    sudo dnf install -y \
+    pkg_install \
         ansible \
         helm \
         kind \
@@ -352,7 +354,7 @@ KREPO
         yq
 
     if [[ "$_HASHI_AVAILABLE" == true ]]; then
-        sudo dnf install -y terraform
+        pkg_install terraform
     else
         warn "terraform skipped (HashiCorp repo not available)"
     fi
