@@ -101,18 +101,19 @@ cmd_audit() {
 
     info "Collecting installed packages..."
 
-    # Collect repo-managed packages
+    # Collect repo-managed packages (parsed from bootstrap.sh + apps.sh)
     local -A known_pkgs=()
     collect_known_packages known_pkgs
     local known_count="${#known_pkgs[@]}"
 
-    # User-installed RPM packages (explicitly installed, not pulled as deps)
-    local -A user_installed=()
+    # All installed RPM package names
+    local -A all_installed=()
     while IFS= read -r pkg; do
-        [[ -n "$pkg" ]] && user_installed["$pkg"]=1
-    done < <(dnf5 repoquery --userinstalled --qf '%{name}\n' 2>/dev/null || true)
+        [[ -n "$pkg" ]] && all_installed["$pkg"]=1
+    done < <(rpm -qa --qf '%{NAME}\n' | sort -u)
 
-    # Leaf packages (nothing depends on them)
+    # Leaf packages (nothing depends on them) — primary source for removal candidates.
+    # Works on fresh installs where --userinstalled returns nothing.
     # dnf5 leaves prefixes leaf packages with "- " and dependents with "  "
     local -A leaves=()
     while IFS= read -r line; do
@@ -124,62 +125,74 @@ cmd_audit() {
             [[ -n "$name" ]] && leaves["$name"]=1
         fi
     done < <(dnf5 leaves 2>/dev/null || true)
-
-    # Categorize
-    local -a repo_managed=()
-    local -a leaf_candidates=()
-    local -a other_pkgs=()
-    local user_count="${#user_installed[@]}"
     local leaf_count="${#leaves[@]}"
 
-    if (( user_count > 0 )); then
-        for pkg in $(printf '%s\n' "${!user_installed[@]}" | sort); do
+    # Categorize leaves: repo-managed vs removal candidate
+    local -a leaf_repo_managed=()
+    local -a leaf_candidates=()
+
+    if (( leaf_count > 0 )); then
+        for pkg in $(printf '%s\n' "${!leaves[@]}" | sort); do
             if [[ -v known_pkgs["$pkg"] ]]; then
-                repo_managed+=("$pkg")
-            elif [[ -v leaves["$pkg"] ]]; then
-                leaf_candidates+=("$pkg")
+                leaf_repo_managed+=("$pkg")
             else
-                other_pkgs+=("$pkg")
+                leaf_candidates+=("$pkg")
             fi
         done
     fi
+
+    # Repo-managed packages found on this system (non-leaf)
+    local -a repo_managed_installed=()
+    if (( known_count > 0 )); then
+        for pkg in $(printf '%s\n' "${!known_pkgs[@]}" | sort); do
+            if [[ -v all_installed["$pkg"] ]] && ! [[ -v leaves["$pkg"] ]]; then
+                repo_managed_installed+=("$pkg")
+            fi
+        done
+    fi
+
+    # Helper: format a package line with size and install date
+    _pkg_line() {
+        local pkg="$1"
+        local size_bytes
+        size_bytes=$(rpm -q --qf '%{SIZE}' "$pkg" 2>/dev/null || echo "0")
+        local size_mb=$(( size_bytes / 1048576 ))
+        local install_date
+        install_date=$(rpm -q --qf '%{INSTALLTIME:date}' "$pkg" 2>/dev/null || echo "unknown")
+        printf "  %-35s  %4s MB  %s\n" "$pkg" "$size_mb" "$install_date"
+    }
 
     # Generate report
     {
         echo "Package Audit Report — $(date '+%Y-%m-%d %H:%M')"
         echo "=================================================="
         echo ""
+        echo "Total installed packages: ${#all_installed[@]}"
         echo "Repo-managed packages parsed: $known_count"
-        echo "User-installed packages found: $user_count"
         echo "Leaf packages found: $leaf_count"
         echo ""
 
-        echo "--- REPO-MANAGED (${#repo_managed[@]} packages — do not remove) ---"
-        echo ""
-        for pkg in "${repo_managed[@]}"; do
-            local install_date
-            install_date=$(rpm -q --qf '%{INSTALLTIME:date}' "$pkg" 2>/dev/null || echo "unknown")
-            printf "  %-35s  %s\n" "$pkg" "$install_date"
-        done
-
-        echo ""
-        echo "--- LEAF CANDIDATES (${#leaf_candidates[@]} packages — safe removal candidates) ---"
-        echo "These are user-installed and nothing depends on them."
+        echo "--- LEAF CANDIDATES (${#leaf_candidates[@]} packages — review for removal) ---"
+        echo "Nothing depends on these. Safe to remove individually."
         echo ""
         for pkg in "${leaf_candidates[@]}"; do
-            local install_date
-            install_date=$(rpm -q --qf '%{INSTALLTIME:date}' "$pkg" 2>/dev/null || echo "unknown")
-            printf "  %-35s  %s\n" "$pkg" "$install_date"
+            _pkg_line "$pkg"
         done
 
         echo ""
-        echo "--- OTHER USER-INSTALLED (${#other_pkgs[@]} packages — has dependents) ---"
-        echo "Removal may cascade. Use 'cleanup.sh remove <pkg>' to review impact."
+        echo "--- REPO-MANAGED LEAVES (${#leaf_repo_managed[@]} packages — keep) ---"
+        echo "Leaf packages that are managed by bootstrap.sh or apps.sh."
         echo ""
-        for pkg in "${other_pkgs[@]}"; do
-            local install_date
-            install_date=$(rpm -q --qf '%{INSTALLTIME:date}' "$pkg" 2>/dev/null || echo "unknown")
-            printf "  %-35s  %s\n" "$pkg" "$install_date"
+        for pkg in "${leaf_repo_managed[@]}"; do
+            _pkg_line "$pkg"
+        done
+
+        echo ""
+        echo "--- REPO-MANAGED INSTALLED (${#repo_managed_installed[@]} packages — reference) ---"
+        echo "Non-leaf packages from bootstrap.sh/apps.sh found on this system."
+        echo ""
+        for pkg in "${repo_managed_installed[@]}"; do
+            _pkg_line "$pkg"
         done
 
         # Flatpak section
@@ -201,9 +214,9 @@ cmd_audit() {
     ok "Report written to: $report"
     echo ""
     echo "Summary:"
-    echo "  Repo-managed:     ${#repo_managed[@]} (skip)"
-    echo "  Leaf candidates:  ${#leaf_candidates[@]} (review for removal)"
-    echo "  Other installed:  ${#other_pkgs[@]} (has dependents)"
+    echo "  Leaf candidates:       ${#leaf_candidates[@]} (review for removal)"
+    echo "  Repo-managed leaves:   ${#leaf_repo_managed[@]} (keep)"
+    echo "  Repo-managed (other):  ${#repo_managed_installed[@]} (reference)"
     echo ""
     echo "Review: less $report"
 }
