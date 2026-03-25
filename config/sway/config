@@ -30,7 +30,7 @@ exec /usr/libexec/polkit-mate-authentication-agent-1
 exec waybar
 exec dunst
 exec bluetoothctl power on
-exec nm-applet
+
 
 exec swayidle -w \
     timeout 300 'swaylock -f' \
@@ -174,3 +174,6 @@ mode "resize" {
         bindsym Return mode "default"
         bindsym Escape mode "default"
 }
+
+# -- local overrides (per-machine customizations, not tracked by git)
+include ~/.config/sway/config.local

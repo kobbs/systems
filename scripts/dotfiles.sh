@@ -93,6 +93,28 @@ link_file() {
     ok "$dst → $src"
 }
 
+# ---------------------------------------------------------------------------
+# Create a local override file if it doesn't already exist.
+# These are per-machine customizations that are NOT tracked by git.
+# Usage: ensure_local_override <target_path> <comment_char>
+# ---------------------------------------------------------------------------
+ensure_local_override() {
+    local dst="$1"
+    local comment="${2:-#}"
+
+    if [[ -e "$dst" ]]; then
+        ok "Local override exists (kept): $dst"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$dst")"
+    cat > "$dst" <<EOF
+${comment} Local overrides for this machine (not tracked by git).
+${comment} Settings here take precedence over the base config.
+EOF
+    ok "Created local override: $dst"
+}
+
 # Detect sway availability for conditional sections
 _HAS_SWAY=false
 if command -v sway &>/dev/null; then
@@ -106,6 +128,7 @@ fi
 if [[ "$_HAS_SWAY" == true ]]; then
     info "Deploying sway config..."
     link_file "$CONFIG_DIR/sway/config" "$HOME/.config/sway/config"
+    ensure_local_override "$HOME/.config/sway/config.local" "#"
 
     info "Deploying waybar config..."
     link_file "$CONFIG_DIR/waybar/config"    "$HOME/.config/waybar/config"
@@ -159,23 +182,37 @@ grep -qF "prompt.sh" "$HOME/.bashrc" 2>/dev/null \
 ok "Bash prompt configured (takes effect in new shells)"
 
 # ---------------------------------------------------------------------------
+# Bash completions
+# ---------------------------------------------------------------------------
+info "Deploying bash completions..."
+link_file "$CONFIG_DIR/bash/completions.sh" "$HOME/.config/shell/completions.sh"
+
+COMPLETIONS_SOURCE_LINE="[[ -f \"\$HOME/.config/shell/completions.sh\" ]] && source \"\$HOME/.config/shell/completions.sh\""
+grep -qF "completions.sh" "$HOME/.bashrc" 2>/dev/null \
+    || echo "$COMPLETIONS_SOURCE_LINE" >> "$HOME/.bashrc"
+ok "Bash completions configured (takes effect in new shells)"
+
+# ---------------------------------------------------------------------------
 # Dunst
 # ---------------------------------------------------------------------------
 info "Deploying dunst config..."
 mkdir -p "$HOME/.config/dunst"
 link_file "$CONFIG_DIR/dunst/dunstrc" "$HOME/.config/dunst/dunstrc"
+ensure_local_override "$HOME/.config/dunst/dunstrc.local" "#"
 
 # ---------------------------------------------------------------------------
 # Kitty
 # ---------------------------------------------------------------------------
 info "Deploying kitty config..."
 link_file "$CONFIG_DIR/kitty/kitty.conf" "$HOME/.config/kitty/kitty.conf"
+ensure_local_override "$HOME/.config/kitty/config.local" "#"
 
 # ---------------------------------------------------------------------------
 # Tmux
 # ---------------------------------------------------------------------------
 info "Deploying tmux config..."
 link_file "$CONFIG_DIR/tmux/tmux.conf" "$HOME/.config/tmux/tmux.conf"
+ensure_local_override "$HOME/.config/tmux/local.conf" "#"
 
 # ---------------------------------------------------------------------------
 # Icon theme (Tela, user-local — color follows ACCENT)

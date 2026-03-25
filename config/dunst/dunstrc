@@ -30,3 +30,7 @@
     foreground = "#ffffff"
     frame_color = "#A40000"
     timeout = 0
+
+# Local overrides (per-machine customizations, not tracked by git)
+[include]
+    path = ~/.config/dunst/dunstrc.local

@@ -327,7 +327,7 @@ systemctl --user list-unit-files --state=enabled
 
 ## WiFi (nmcli)
 
-`NetworkManager` is a default Fedora package. The tray GUI (`network-manager-applet`) is installed by bootstrap.sh.
+`NetworkManager` is a default Fedora package. The `network-manager-applet` package (installed by bootstrap.sh) provides `nm-connection-editor`, a full GTK GUI for managing connections — waybar network modules open it on click. For terminal use, `nmtui` offers a TUI and `nmcli` works from any TTY.
 
 ```bash
 nmcli device wifi list                          # scan for networks
@@ -341,6 +341,57 @@ nmcli device status                             # show device states
 nmcli radio wifi off                            # disable WiFi radio
 nmcli radio wifi on                             # enable WiFi radio
 ```
+
+## DNS resolver
+
+Fedora's default DNS chain: NetworkManager → systemd-resolved → `/etc/resolv.conf` (symlink to the stub resolver at `127.0.0.53`). All commands below work from a TTY.
+
+### Inspect current state
+
+```bash
+resolvectl status                               # DNS servers per interface + global config
+resolvectl query example.com                    # test name resolution (bypasses /etc/hosts)
+resolvectl statistics                           # cache hit/miss stats
+resolvectl flush-caches                         # flush the DNS cache
+cat /etc/resolv.conf                            # should point to 127.0.0.53 (stub)
+```
+
+### Temporary override (lost on reboot or reconnect)
+
+```bash
+sudo resolvectl dns eth0 1.1.1.1 9.9.9.9       # set DNS for an interface
+sudo resolvectl dns eth0 ""                     # revert to auto (DHCP-provided)
+```
+
+### Persistent override via NetworkManager
+
+```bash
+# Set custom DNS servers on a connection
+nmcli con mod <name> ipv4.dns "1.1.1.1 9.9.9.9"
+nmcli con mod <name> ipv4.ignore-auto-dns yes   # ignore DHCP-provided DNS
+nmcli con down <name> && nmcli con up <name>    # reconnect to apply
+
+# Revert to DHCP-provided DNS
+nmcli con mod <name> ipv4.dns ""
+nmcli con mod <name> ipv4.ignore-auto-dns no
+nmcli con down <name> && nmcli con up <name>
+```
+
+### Static resolv.conf (nuclear option — works without any services)
+
+Replace the systemd-resolved symlink with a plain file. Useful when systemd-resolved or NetworkManager are broken and you need DNS from a bare TTY.
+
+```bash
+# Break the symlink and write a static file
+sudo rm /etc/resolv.conf
+echo -e "nameserver 1.1.1.1\nnameserver 9.9.9.9" | sudo tee /etc/resolv.conf > /dev/null
+
+# Restore the default symlink when done
+sudo ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+sudo systemctl restart systemd-resolved
+```
+
+> **Note:** With a static `/etc/resolv.conf`, NetworkManager and systemd-resolved stop managing DNS. Restore the symlink once the system is healthy.
 
 ## Bluetooth (bluetoothctl)
 
@@ -467,4 +518,57 @@ The following `theme.conf` keys use the accent color:
 
 ```bash
 sudo sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/corners
+```
+
+## Disk cleanup
+
+### Audit installed packages
+
+The repo includes `scripts/cleanup.sh` for reviewing and removing unused packages:
+
+```bash
+scripts/cleanup.sh audit                        # generate /var/tmp/pkg-audit-YYYYMMDD.txt
+scripts/cleanup.sh remove <pkg>...              # review deps + dry-run before removing
+```
+
+The audit cross-references installed packages against `bootstrap.sh` and `apps.sh`, categorizing them as repo-managed (keep), leaf candidates (safe to review), or packages with dependents (cascade risk).
+
+### Find large packages
+
+```bash
+rpm -qa --qf '%{SIZE}\t%{NAME}\n' | sort -rn | head -20   # top 20 by install size
+du -sh /usr/lib/firmware /usr/share/fonts /usr/share/locale  # common space hogs
+df -h /                                                      # overall disk usage
+```
+
+### Flatpak runtime pruning
+
+Flatpak runtimes accumulate as apps update. Prune orphaned runtimes:
+
+```bash
+flatpak uninstall --unused                      # remove orphaned runtimes
+flatpak list --user --app --columns=application,size  # app sizes
+du -sh ~/.local/share/flatpak/repo              # total flatpak disk usage
+```
+
+### Locale trimming
+
+Fedora ships `glibc-all-langpacks` (~227 MB) by default. If only English is needed:
+
+```bash
+sudo dnf swap glibc-all-langpacks glibc-langpack-en --allowerasing
+```
+
+### Journal log trimming
+
+```bash
+journalctl --disk-usage                          # check current size
+sudo journalctl --vacuum-size=50M                # trim to 50 MB
+```
+
+For persistent limits, edit `/etc/systemd/journald.conf`:
+
+```ini
+[Journal]
+SystemMaxUse=50M
 ```
