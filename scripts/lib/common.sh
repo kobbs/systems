@@ -171,6 +171,21 @@ apply_accent() {
     local -a roles=(PRIMARY DIM DARK BRIGHT SECONDARY)
     local -a targets=("$ACCENT_PRIMARY" "$ACCENT_DIM" "$ACCENT_DARK" "$ACCENT_BRIGHT" "$ACCENT_SECONDARY")
 
+    # Pass 0: clean up leftover placeholders from interrupted previous runs
+    local -i i=0
+    for role in "${roles[@]}"; do
+        local target="${targets[$i]}" target_bare="${target#\#}"
+        # Old format: @@ACCENT_ROLE@@
+        sed -i "s/@@ACCENT_${role}@@/${target}/g" "$file"
+        sed -i "s/@@BARE_${role}@@/${target_bare}/g" "$file"
+        # Current format: @@preset_ROLE@@ (any preset name)
+        for preset in "${!COLOR_PRESETS[@]}"; do
+            sed -i "s/@@${preset}_${role}@@/${target}/g" "$file"
+            sed -i "s/@@BARE_${preset}_${role}@@/${target_bare}/g" "$file"
+        done
+        i=$(( i + 1 ))
+    done
+
     # Pass 1: known preset colors → preset-specific placeholders
     for preset in "${!COLOR_PRESETS[@]}"; do
         [[ "$preset" == "$ACCENT_NAME" ]] && continue

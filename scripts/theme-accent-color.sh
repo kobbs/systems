@@ -78,9 +78,16 @@ list_presets() {
 # ---------------------------------------------------------------------------
 _detect_preset() {
     # Given a file, detect which preset's colors are present.
-    # Returns the preset name, "mixed" if multiple, or "unknown" if none match.
+    # Returns the preset name, "mixed" if multiple, "broken" if leftover
+    # placeholders from an interrupted run, or "unknown" if none match.
     local file="$1"
     [[ -f "$file" ]] || { echo "missing"; return; }
+
+    # Check for leftover @@placeholder@@ strings from interrupted apply_accent
+    if grep -q '@@[A-Za-z_]*@@' "$file" 2>/dev/null; then
+        echo "broken"
+        return
+    fi
 
     local found=""
     local count=0
@@ -105,6 +112,12 @@ _detect_preset_bare() {
     # Same as _detect_preset but checks bare hex (no #) for swaylock-style files.
     local file="$1"
     [[ -f "$file" ]] || { echo "missing"; return; }
+
+    # Check for leftover @@placeholder@@ strings from interrupted apply_accent
+    if grep -q '@@[A-Za-z_]*@@' "$file" 2>/dev/null; then
+        echo "broken"
+        return
+    fi
 
     local found=""
     local count=0
@@ -209,6 +222,9 @@ audit_accents() {
         local status="OK"
         if [[ "$detected" == "missing" ]]; then
             status="FILE NOT FOUND"
+            anomalies=$((anomalies + 1))
+        elif [[ "$detected" == "broken" ]]; then
+            status="BROKEN — leftover placeholders from interrupted run"
             anomalies=$((anomalies + 1))
         elif [[ "$detected" == "unknown" ]]; then
             # For gtk/kde, only Tela-<name> is present, no hex — check icon theme name
