@@ -174,7 +174,8 @@ apply_accent() {
     # Pass 0: clean up leftover placeholders from interrupted previous runs
     local -i i=0
     for role in "${roles[@]}"; do
-        local target="${targets[$i]}" target_bare="${target#\#}"
+        local target="${targets[$i]}"
+        local target_bare="${target#\#}"
         # Old format: @@ACCENT_ROLE@@
         sed -i "s/@@ACCENT_${role}@@/${target}/g" "$file"
         sed -i "s/@@BARE_${role}@@/${target_bare}/g" "$file"
