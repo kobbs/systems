@@ -29,6 +29,8 @@ exec kanshi
 exec /usr/libexec/polkit-mate-authentication-agent-1
 exec waybar
 exec dunst
+exec protonvpn-app
+exec nmcli radio wifi on
 exec bluetoothctl power on
 
 

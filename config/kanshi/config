@@ -11,7 +11,7 @@
 
 # -- Home desktop (single DP-3, AMD discrete GPU)
 profile desktop {
-    output DP-3 mode 2560x1440@165Hz position 0,0 scale 1
+    output DP-3 mode 2560x1440@165.153000Hz position 0,0 scale 1
 }
 
 profile kvm {
