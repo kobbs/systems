@@ -30,6 +30,7 @@ trap _cleanup EXIT
 usage() {
     cat <<EOF
 Usage: $(basename "$0") start [--list]
+       $(basename "$0") audit
        $(basename "$0") --list
 
 Apply the accent color preset to all config files.
@@ -40,6 +41,7 @@ Available presets: green, orange, blue.
 Commands:
   start             Apply accent to all config files and install icon theme
   start --list      Apply accent and list all preset hex values
+  audit             Check applied colors against expected preset and report anomalies
 
 Options:
   --list            List all presets with hex values (no changes applied)
@@ -72,10 +74,187 @@ list_presets() {
 }
 
 # ---------------------------------------------------------------------------
+# Audit — detect mismatches between applied and expected accent colors
+# ---------------------------------------------------------------------------
+_detect_preset() {
+    # Given a file, detect which preset's colors are present.
+    # Returns the preset name, "mixed" if multiple, or "unknown" if none match.
+    local file="$1"
+    [[ -f "$file" ]] || { echo "missing"; return; }
+
+    local found=""
+    local count=0
+    for preset in "${!COLOR_PRESETS[@]}"; do
+        read -r p _rest <<< "${COLOR_PRESETS[$preset]}"
+        if grep -qi "${p}" "$file" 2>/dev/null; then
+            found="${found:+${found}+}${preset}"
+            count=$(( count + 1 ))
+        fi
+    done
+
+    if [[ "$count" -eq 0 ]]; then
+        echo "unknown"
+    elif [[ "$count" -eq 1 ]]; then
+        echo "$found"
+    else
+        echo "mixed($found)"
+    fi
+}
+
+_detect_preset_bare() {
+    # Same as _detect_preset but checks bare hex (no #) for swaylock-style files.
+    local file="$1"
+    [[ -f "$file" ]] || { echo "missing"; return; }
+
+    local found=""
+    local count=0
+    for preset in "${!COLOR_PRESETS[@]}"; do
+        read -r p _rest <<< "${COLOR_PRESETS[$preset]}"
+        local bare="${p#\#}"
+        if grep -qi "${bare}" "$file" 2>/dev/null; then
+            found="${found:+${found}+}${preset}"
+            count=$(( count + 1 ))
+        fi
+    done
+
+    if [[ "$count" -eq 0 ]]; then
+        echo "unknown"
+    elif [[ "$count" -eq 1 ]]; then
+        echo "$found"
+    else
+        echo "mixed($found)"
+    fi
+}
+
+_detect_bash_prompt() {
+    # Detect which preset's ANSI code is used in the bash prompt.
+    local file="$1"
+    [[ -f "$file" ]] || { echo "missing"; return; }
+
+    local ansi_code
+    ansi_code=$(sed -n 's/^_GREEN="\$(_pc \([0-9]*\))".*/\1/p' "$file")
+    [[ -z "$ansi_code" ]] && { echo "unknown"; return; }
+
+    for preset in "${!COLOR_PRESETS[@]}"; do
+        read -r _p _d _dk _br _s ansi <<< "${COLOR_PRESETS[$preset]}"
+        if [[ "$ansi_code" == "$ansi" ]]; then
+            echo "$preset"
+            return
+        fi
+    done
+    echo "unknown(ANSI=$ansi_code)"
+}
+
+audit_accents() {
+    # Determine expected preset from env
+    local _env_source="env"
+    local _env_file="$SCRIPT_DIR/env"
+    if [[ ! -f "$_env_file" ]]; then
+        _env_file="$SCRIPT_DIR/env-sample"
+        _env_source="env-sample (no local env file)"
+    fi
+
+    local _expected=""
+    if [[ -f "$_env_file" ]]; then
+        _expected=$(grep -oP '^ACCENT="\K[^"]+' "$_env_file" 2>/dev/null || true)
+    fi
+    _expected="${_expected:-green}"
+
+    # Validate expected preset exists
+    if [[ -z "${COLOR_PRESETS[$_expected]+x}" ]]; then
+        echo "  WARNING: Unknown preset '$_expected' in $_env_source"
+        _expected="green"
+    fi
+
+    read -r exp_p exp_d exp_dk exp_br exp_s exp_ansi <<< "${COLOR_PRESETS[$_expected]}"
+
+    echo ""
+    echo "Accent Color Audit"
+    echo "==================="
+    echo ""
+    echo "  Expected preset: $_expected  (source: $_env_source)"
+    echo "  Expected PRIMARY: $exp_p  DIM: $exp_d  DARK: $exp_dk  BRIGHT: $exp_br  SECONDARY: $exp_s"
+    echo ""
+
+    local -i anomalies=0
+
+    # Define files to audit: label, file path, detection method
+    local -a audit_items=(
+        "sway|$CONFIG_DIR/sway/config|hex"
+        "waybar|$CONFIG_DIR/waybar/style.css|hex"
+        "sddm|$CONFIG_DIR/sddm/theme.conf|hex"
+        "fish|$CONFIG_DIR/fish/conf.d/02-colors.fish|hex"
+        "kitty|$CONFIG_DIR/kitty/kitty.conf|hex"
+        "tmux|$CONFIG_DIR/tmux/tmux.conf|hex"
+        "dunst|$CONFIG_DIR/dunst/dunstrc|hex"
+        "gtk|$CONFIG_DIR/gtk/settings.ini|hex"
+        "kde|$CONFIG_DIR/kde/kdeglobals|hex"
+        "swaylock|$CONFIG_DIR/swaylock/config|bare"
+        "bash prompt|$CONFIG_DIR/bash/prompt.sh|ansi"
+    )
+
+    printf "  %-14s %-10s %s\n" "COMPONENT" "DETECTED" "STATUS"
+    printf "  %-14s %-10s %s\n" "---------" "--------" "------"
+
+    for item in "${audit_items[@]}"; do
+        IFS='|' read -r label filepath method <<< "$item"
+        local detected=""
+
+        case "$method" in
+            hex)  detected=$(_detect_preset "$filepath") ;;
+            bare) detected=$(_detect_preset_bare "$filepath") ;;
+            ansi) detected=$(_detect_bash_prompt "$filepath") ;;
+        esac
+
+        local status="OK"
+        if [[ "$detected" == "missing" ]]; then
+            status="FILE NOT FOUND"
+            anomalies=$((anomalies + 1))
+        elif [[ "$detected" == "unknown" ]]; then
+            # For gtk/kde, only Tela-<name> is present, no hex — check icon theme name
+            local _tela_found=""
+            for _tp in "${!COLOR_PRESETS[@]}"; do
+                if grep -qi "Tela-${_tp}" "$filepath" 2>/dev/null; then
+                    _tela_found="$_tp"
+                    break
+                fi
+            done
+            if [[ -n "$_tela_found" ]]; then
+                detected="$_tela_found"
+                if [[ "$_tela_found" == "$_expected" ]]; then
+                    status="OK (icon theme)"
+                else
+                    status="MISMATCH — expected $_expected (icon theme)"
+                    anomalies=$((anomalies + 1))
+                fi
+            else
+                status="NO ACCENT COLORS FOUND"
+                anomalies=$((anomalies + 1))
+            fi
+        elif [[ "$detected" != "$_expected" ]]; then
+            status="MISMATCH — expected $_expected"
+            anomalies=$((anomalies + 1))
+        fi
+
+        printf "  %-14s %-10s %s\n" "$label" "$detected" "$status"
+    done
+
+    echo ""
+    if [[ "$anomalies" -eq 0 ]]; then
+        echo "  No anomalies detected."
+    else
+        echo "  $anomalies anomaly/anomalies detected."
+        echo "  Run '$(basename "$0") start' to fix."
+    fi
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 _DO_START=false
 _DO_LIST=false
+_DO_AUDIT=false
 
 if [[ $# -eq 0 ]]; then
     usage
@@ -84,6 +263,7 @@ fi
 while [[ $# -gt 0 ]]; do
     case "$1" in
         start)      _DO_START=true; shift ;;
+        audit)      _DO_AUDIT=true; shift ;;
         --list)     _DO_LIST=true; shift ;;
         -h|--help)  usage ;;
         *)
@@ -93,6 +273,12 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# audit: check and report, then exit
+if [[ "$_DO_AUDIT" == true ]]; then
+    audit_accents
+    exit 0
+fi
 
 # --list without start: just print and exit
 if [[ "$_DO_LIST" == true ]] && [[ "$_DO_START" == false ]]; then

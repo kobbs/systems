@@ -181,7 +181,7 @@ apply_accent() {
             local src_bare="${src#\#}" role="${roles[$i]}"
             sed -i "s/${src}/@@${preset}_${role}@@/gI" "$file"
             sed -i "s/=${src_bare}$/=@@BARE_${preset}_${role}@@/gI" "$file"
-            (( i++ ))
+            i=$(( i + 1 ))
         done
 
         sed -i "s/Tela-${preset}/Tela-${ACCENT_NAME}/g" "$file"
@@ -195,7 +195,7 @@ apply_accent() {
             local target="${targets[$i]}" target_bare="${targets[$i]#\#}"
             sed -i "s/@@${preset}_${role}@@/${target}/g" "$file"
             sed -i "s/@@BARE_${preset}_${role}@@/${target_bare}/g" "$file"
-            (( i++ ))
+            i=$(( i + 1 ))
         done
     done
 }
