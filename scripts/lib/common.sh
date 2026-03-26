@@ -165,43 +165,38 @@ apply_accent() {
 
     # Two-pass replacement prevents chain reactions when presets share colors
     # (e.g. orange SECONDARY == green PRIMARY, both #88DD00).
-    # Pass 1: source colors → unique placeholders
+    # Pass 1: source colors → unique placeholders (keyed by role, not index)
     # Pass 2: placeholders → target colors
+    local -a roles=(PRIMARY DIM DARK BRIGHT SECONDARY)
     local -a targets=("$ACCENT_PRIMARY" "$ACCENT_DIM" "$ACCENT_DARK" "$ACCENT_BRIGHT" "$ACCENT_SECONDARY")
-    local -i idx=0
 
     # Pass 1: replace all known preset colors with placeholders
     for preset in "${!COLOR_PRESETS[@]}"; do
         [[ "$preset" == "$ACCENT_NAME" ]] && continue
         read -r p d dk br s _ansi <<< "${COLOR_PRESETS[$preset]}"
 
-        local -i slot=0
+        local -i i=0
         for src in "$p" "$d" "$dk" "$br" "$s"; do
             local src_bare="${src#\#}"
+            local role="${roles[$i]}"
             # #RRGGBB format
-            sed -i "s/${src}/@@ACCENT_${idx}_${slot}@@/gi" "$file"
+            sed -i "s/${src}/@@ACCENT_${role}@@/gi" "$file"
             # Bare hex (swaylock: key=RRGGBB at end of line)
-            sed -i "s/=${src_bare}$/=@@BARE_${idx}_${slot}@@/gi" "$file"
-            (( slot++ ))
+            sed -i "s/=${src_bare}$/=@@BARE_${role}@@/gi" "$file"
+            (( i++ ))
         done
 
         # Icon theme name
         sed -i "s/Tela-${preset}/Tela-${ACCENT_NAME}/g" "$file"
-        (( idx++ ))
     done
 
     # Pass 2: replace placeholders with target colors
-    idx=0
-    for preset in "${!COLOR_PRESETS[@]}"; do
-        [[ "$preset" == "$ACCENT_NAME" ]] && continue
-
-        local -i slot=0
-        for target in "${targets[@]}"; do
-            local target_bare="${target#\#}"
-            sed -i "s/@@ACCENT_${idx}_${slot}@@/${target}/g" "$file"
-            sed -i "s/@@BARE_${idx}_${slot}@@/${target_bare}/g" "$file"
-            (( slot++ ))
-        done
-        (( idx++ ))
+    local -i i=0
+    for role in "${roles[@]}"; do
+        local target="${targets[$i]}"
+        local target_bare="${target#\#}"
+        sed -i "s/@@ACCENT_${role}@@/${target}/g" "$file"
+        sed -i "s/@@BARE_${role}@@/${target_bare}/g" "$file"
+        (( i++ ))
     done
 }
