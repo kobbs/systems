@@ -7,163 +7,182 @@ Fedora workstation bootstrap and dotfiles.
 ## Repo structure
 
 ```
-scripts/             Automation (run these)
-  env-sample         Default variables (hostname, accent) — copy to env to override
-  bootstrap.sh       System packages, repos, env vars
-  dotfiles.sh        Symlink configs into ~/.config/
-  apps.sh            User-facing applications
-  lib/common.sh      Shared helpers (logging, preflight, accent colors)
+setup                   Single entry point (executable)
 
-config/              Dotfiles (source of truth, deployed by scripts/dotfiles.sh)
-  sway/              Sway compositor
-  waybar/            Waybar modules, styles, and scripts
-  kanshi/            Per-machine display profiles
-  kitty/             Kitty terminal
-  tmux/              tmux
-  dunst/             Dunst notification daemon
-  swaylock/          Swaylock screen locker
-  sddm/             SDDM greeter theme
-  gtk/               GTK 3/4 dark theme (single file, symlinked to both)
-  qt5ct/ qt6ct/      Qt theme settings
-  kde/               KDE Frameworks color scheme (kdeglobals)
-  bash/              Shell prompt
+modules/                Independent, composable modules
+  system.sh             Hostname, keyboard, GPU groups, firewall, services
+  packages.sh           System packages, repos, codecs
+  shell-env.sh          Shell environment (bootstrap-env.sh)
+  dotfiles.sh           Symlink configs into ~/.config/
+  theme.sh              Accent colors, icon theme, SDDM
+  apps.sh               User-facing applications
+  audit.sh              Package manifest audit (read-only)
 
-documentation/       Reference cheatsheets (Sway, Fedora/DNF, ROCm, Claude Code)
+lib/                    Shared library
+  common.sh             Logging, preflight, pkg_install, find_fedora_version
+  config.sh             INI profile parser
+  colors.sh             Color presets + apply_accent
+  links.sh              Symlink helpers (link_file, check_link)
+
+profiles/               Machine configuration (declarative)
+  default.conf          Base settings (checked in)
+  local.conf            Per-machine overrides (gitignored)
+
+colors/                 Color preset definitions
+  green.conf            Green accent preset
+  orange.conf           Orange accent preset
+  blue.conf             Blue accent preset
+
+config/                 Dotfiles (source of truth)
+  sway/                 Sway compositor
+  waybar/               Waybar modules, styles, and scripts
+  kanshi/               Per-machine display profiles
+  kitty/                Kitty terminal
+  tmux/                 tmux
+  dunst/                Dunst notification daemon
+  swaylock/             Swaylock screen locker
+  sddm/                SDDM greeter theme
+  gtk/                  GTK 3/4 dark theme (single file → both gtk-3.0 and gtk-4.0)
+  qt5ct/ qt6ct/         Qt theme settings
+  kde/                  KDE Frameworks color scheme (kdeglobals)
+  bash/                 Shell prompt + completions
+  fish/                 Fish shell (optional)
+
+tests/                  Container-based smoke tests (Podman)
+documentation/          Reference cheatsheets
+specs/                  Architecture and design documents
 ```
 
 ---
 
-## Bootstrap (`scripts/bootstrap.sh`)
-
-Installs and configures everything at the system level. Run once per machine as a regular user (not root).
+## Quick start
 
 ```bash
-bash scripts/bootstrap.sh start
+# 1. Preview all changes (dry-run, no modifications)
+./setup install
+
+# 2. Apply everything
+./setup install --apply
+
+# 3. Reboot to apply group changes and keyboard layout
 ```
 
-### Sway Spin variant
-
-If starting from **Fedora Sway Spin** instead of KDE Spin, pass the `--sway-spin` flag (or let the script auto-detect — it checks if `sway` is already installed):
+## Individual modules
 
 ```bash
-bash scripts/bootstrap.sh start --sway-spin
-bash scripts/bootstrap.sh start --kde-spin    # force KDE Spin mode
-bash scripts/bootstrap.sh start               # auto-detect (persisted for re-runs)
+./setup system --apply          # Hostname, keyboard, GPU groups, firewall
+./setup packages --apply        # System packages and repos
+./setup shell-env --apply       # Shell environment (bootstrap-env.sh)
+./setup dotfiles --apply        # Symlink config files
+./setup theme --apply           # Accent colors, icon theme, SDDM
+./setup apps --apply            # User applications
+./setup audit                   # Package audit (always read-only)
 ```
 
-The detected mode is saved to `~/.config/shell/.bootstrap-mode` so re-runs use the same mode even after sway is installed.
-
-In Sway Spin mode the script skips packages the spin already ships (sway, waybar, kanshi, mako, grim, slurp, etc.) and drops the `unset SSH_ASKPASS` workaround (no ksshaskpass on the Sway Spin).
-
-**What it does** (full variant):
-
-- System update + RPM Fusion (free/nonfree) + multimedia codecs
-- Flathub remote
-- Sway/Wayland stack: sway, waybar, kanshi, swaylock, swayidle, mako, kitty, bemenu, grim, slurp, wl-clipboard, mate-polkit, pavucontrol, network-manager-applet, bluez, libnotify
-- DevOps tooling: ansible, terraform, kubectl, helm, podman, kind, jq, yq
-- Security: pam-u2f, yubikey-manager
-- CLI utilities: git, curl, ripgrep, fzf, tmux, btop, bat, fd-find, vim, htop, wget
-- Theming: plasma-integration, Qt5/Qt6 platform theme, Tela icon theme (accent-colored)
-- Performance: tuned + tuned-ppd (power profile daemon)
-- Firewall: firewalld enabled with default zone
-- Shell env: `~/.config/shell/bootstrap-env.sh` sourced from `.bashrc`
-- Keyboard layout: FR (system-wide)
-- SDDM greeter: sddm-theme-corners (dark, Qt6)
-- GPU groups: adds user to `video` and `render` if a discrete AMD GPU (RDNA2+) is detected
-
-**After running, reboot** to apply group changes and keyboard layout.
-
-**Not handled by bootstrap:**
-
-- Dotfile deployment (`scripts/dotfiles.sh`)
-- Yubikey PAM integration — register key first: `pamu2fcfg > ~/.config/Yubico/u2f_keys`
-- ROCm/AI workloads (home desktop only — dedicated process)
+All commands preview changes by default. Pass `--apply` to execute.
 
 ---
 
-## Dotfiles (`scripts/dotfiles.sh`)
+## Profile system
 
-Symlinks all configs from `config/` into `~/.config/`. Safe to re-run — existing symlinks are updated, existing files are backed up with a timestamped `.bak` suffix.
-
-```bash
-bash scripts/dotfiles.sh start
-```
-
-Then reload sway with `Super+Shift+C`, or restart it.
-
-### Accent color
-
-The accent color is controlled by the `ACCENT` variable. Copy the sample env and set your preference:
+Machine-specific settings are defined in `profiles/`. Copy the sample to get started:
 
 ```bash
-cp scripts/env-sample scripts/env
-# Edit scripts/env → ACCENT="orange"   (presets: green, orange, blue)
-bash scripts/dotfiles.sh start
+cp profiles/local.conf.sample profiles/local.conf
+# Edit profiles/local.conf
 ```
 
-This propagates the accent to sway borders, waybar, kitty, tmux, dunst, swaylock, SDDM, and the bash prompt. The `scripts/env` file is gitignored — your color choice stays local.
+`local.conf` overrides `default.conf`. Example:
+
+```ini
+[system]
+hostname = workstation
+
+[theme]
+accent = orange
+```
 
 ---
 
-## Application Stack (`scripts/apps.sh`)
+## Accent color
 
-Installs user-facing applications. Run after bootstrap and dotfiles. Run as a regular user.
+Three presets: **green**, **orange**, **blue**. Adding a new preset is as simple as creating a file in `colors/`:
 
 ```bash
-bash scripts/apps.sh start
+# List available presets
+./setup theme --list
+
+# Change accent color
+# Edit profiles/local.conf → accent = orange
+./setup theme --apply
+
+# Check for color drift
+./setup theme --audit
 ```
 
-**What it installs:**
+The accent color propagates to: sway borders, waybar, kitty, tmux, dunst, swaylock, SDDM, bash prompt, fish shell, and the Tela icon theme.
 
-| App | Method |
-|---|---|
-| Firefox | RPM |
-| Brave | RPM (vendor repo) |
-| EasyEffects | Flatpak |
-| Slack | Flatpak |
-| Signal | Flatpak |
-| Nextcloud | RPM |
-| ProtonVPN | RPM (vendor repo) |
-| KeePassXC | RPM |
-| Mesa / AMD acceleration | RPM (libva-utils, mesa-vdpau-drivers-freeworld, mesa-vulkan-drivers) |
-| virt-manager / KVM | RPM (`@virtualization` group) |
+---
 
-Optional desktop utilities (mutually exclusive flags):
-- `--gtk-apps` — Thunar, Evince, GNOME Calculator, Loupe, File Roller, Celluloid
-- `--qt-apps` — Dolphin, Okular, KCalc, Gwenview, Ark, Haruna
+## Module flags
 
-**After running:** log out and back in for `libvirt` group membership to take effect.
+```bash
+./setup packages --rocm         # Include ROCm stack for AMD GPU compute
+./setup packages --sway-spin    # Force Sway Spin mode (skip pre-installed packages)
+./setup apps --devops            # Include DevOps tooling (Terraform, Ansible, Helm, kubectl)
+./setup theme --corners          # Use sddm-theme-corners instead of stock SDDM theme
+./setup theme --accent blue      # Override accent color for this run
+```
+
+---
+
+## Utilities
+
+```bash
+./setup status                  # Show current system state
+./setup diff                    # Show differences between repo and deployed state
+./setup audit                   # Package manifest audit
+```
+
+---
+
+## Sway Spin variant
+
+The system auto-detects whether Sway is pre-installed (Sway Spin) and skips redundant packages. The detected mode is persisted to `~/.config/shell/.bootstrap-mode` so re-runs are consistent.
+
+Override with `./setup packages --sway-spin` or `./setup packages --kde-spin`.
 
 ---
 
 ## Kanshi display profiles
 
-Kanshi matches connected outputs against named profiles. When no profile matches (e.g. on a KVM VM), it exits cleanly and Sway's `output * { scale 1 }` fallback takes over.
-
-To add a profile for a new machine:
+Kanshi matches connected outputs against named profiles. To add a profile for a new machine:
 
 ```bash
-swaymsg -t get_outputs   # or: kanshi --debug
+swaymsg -t get_outputs
+# Then edit config/kanshi/config
 ```
 
-Then add a profile block to `config/kanshi/config`.
+---
+
+## Testing
+
+```bash
+bash tests/smoke.sh    # Runs container-based smoke tests via Podman
+```
 
 ---
 
 ## Claude Code
 
-Claude Code has no RPM or Flatpak package. Use the official native installer (no Node.js or npm required):
+Install via the official native installer:
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash
 ```
 
-This installs a self-contained binary to `~/.claude/` and adds it to your PATH. Updates happen automatically in the background.
-
-On first run, `claude` will open a browser window to authenticate with your Anthropic account.
-
 ---
 
 ## GPU control tools
 
-**LACT** ([GitHub Releases](https://github.com/ilya-zlobintsev/LACT/releases)) is the recommended GPU control tool for RDNA2+. Install the RPM manually if needed.
+**LACT** ([GitHub Releases](https://github.com/ilya-zlobintsev/LACT/releases)) is the recommended GPU control tool for RDNA2+.

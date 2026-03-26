@@ -1,0 +1,154 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+export REPO_ROOT
+
+# ---------------------------------------------------------------------------
+# Load libraries
+# ---------------------------------------------------------------------------
+source "$REPO_ROOT/lib/common.sh"
+source "$REPO_ROOT/lib/config.sh"
+source "$REPO_ROOT/lib/colors.sh"
+source "$REPO_ROOT/lib/links.sh"
+
+# Load profile
+load_profile "$REPO_ROOT/profiles"
+
+# Load color presets
+load_all_presets
+
+# ---------------------------------------------------------------------------
+# Module infrastructure
+# ---------------------------------------------------------------------------
+
+_MODULE_ORDER=( system packages shell-env dotfiles theme apps )
+
+run_module() {
+    local module="$1"; shift
+    local apply=false
+    local args=()
+    for arg in "$@"; do
+        [[ "$arg" == "--apply" ]] && apply=true || args+=("$arg")
+    done
+
+    source "$REPO_ROOT/modules/${module}.sh"
+
+    if ! "${module}::check" "${args[@]+"${args[@]}"}"; then
+        info "$module: already up to date"
+        return 0
+    fi
+
+    if [[ "$apply" == true ]]; then
+        "${module}::apply" "${args[@]+"${args[@]}"}"
+    else
+        "${module}::preview" "${args[@]+"${args[@]}"}"
+    fi
+}
+
+run_all_modules() {
+    local apply=false
+    local args=()
+    for arg in "$@"; do
+        [[ "$arg" == "--apply" ]] && apply=true || args+=("$arg")
+    done
+
+    local module
+    for module in "${_MODULE_ORDER[@]}"; do
+        source "$REPO_ROOT/modules/${module}.sh"
+        echo ""
+        info "=== $module ==="
+        if "${module}::check" "${args[@]+"${args[@]}"}"; then
+            if [[ "$apply" == true ]]; then
+                "${module}::apply" "${args[@]+"${args[@]}"}"
+            else
+                "${module}::preview" "${args[@]+"${args[@]}"}"
+            fi
+        else
+            info "$module: already up to date"
+        fi
+    done
+
+    if [[ "$apply" == false ]]; then
+        echo ""
+        info "Dry run complete. Pass --apply to execute all changes."
+    fi
+}
+
+run_diff() {
+    local module
+    for module in "${_MODULE_ORDER[@]}"; do
+        source "$REPO_ROOT/modules/${module}.sh"
+        echo ""
+        info "=== $module ==="
+        "${module}::preview" 2>/dev/null || true
+    done
+}
+
+run_status() {
+    echo "Profile: hostname=$(profile_get system hostname) accent=$(profile_get theme accent) toolkit=$(profile_get apps desktop_toolkit)"
+    echo ""
+    local module
+    for module in "${_MODULE_ORDER[@]}"; do
+        source "$REPO_ROOT/modules/${module}.sh"
+        "${module}::status" 2>/dev/null || echo "$module: unknown"
+    done
+    # Audit
+    source "$REPO_ROOT/modules/audit.sh"
+    audit::status 2>/dev/null || echo "audit: unknown"
+}
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+usage() {
+    cat <<EOF
+Usage: ./setup <command> [--apply] [options]
+
+Commands:
+  install                Run all modules (dry-run by default)
+  system                 Hostname, keyboard, GPU groups, firewall
+  packages               System packages and repos
+  shell-env              Shell environment (bootstrap-env.sh)
+  dotfiles               Symlink config files
+  theme                  Accent colors, icon theme, SDDM
+  apps                   User applications
+  audit                  Package manifest audit (read-only)
+  diff                   Show differences between repo and deployed state
+  status                 Show current system state
+
+Global options:
+  --apply                Execute changes (without this, only previews)
+
+Module options (passed through):
+  packages --rocm        Include ROCm stack
+  packages --sway-spin   Force Sway Spin mode
+  apps --devops          Include DevOps tooling
+  theme --accent <name>  Override accent color
+  theme --list           List available presets
+  theme --audit          Check for color drift
+  theme --corners        Use sddm-theme-corners
+EOF
+    exit 0
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+    install)    run_all_modules "$@" ;;
+    system)     run_module system "$@" ;;
+    packages)   run_module packages "$@" ;;
+    shell-env)  run_module shell-env "$@" ;;
+    dotfiles)   run_module dotfiles "$@" ;;
+    theme)      run_module theme "$@" ;;
+    apps)       run_module apps "$@" ;;
+    audit)      source "$REPO_ROOT/modules/audit.sh"; audit::apply "$@" ;;
+    diff)       run_diff ;;
+    status)     run_status ;;
+    help|-h|--help) usage ;;
+    *)          echo "Unknown command: $cmd" >&2; usage; exit 1 ;;
+esac

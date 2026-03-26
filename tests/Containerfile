@@ -1,0 +1,5 @@
+FROM registry.fedoraproject.org/fedora:43
+RUN dnf install -y bash coreutils findutils grep sed gawk procps-ng ShellCheck pciutils \
+    && dnf clean all
+WORKDIR /systems
+COPY . .

@@ -1,8 +1,0 @@
-# User-specific variables — sourced by bootstrap.sh and dotfiles.sh.
-# Copy this file to 'scripts/env' to override defaults (env is gitignored).
-#
-# HOSTNAME  — system hostname set by bootstrap.sh
-# ACCENT    — color preset applied to all configs (green, orange, blue)
-
-HOSTNAME="fedora"
-ACCENT="green"
