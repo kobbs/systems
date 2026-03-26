@@ -193,6 +193,28 @@ grep -qF "completions.sh" "$HOME/.bashrc" 2>/dev/null \
 ok "Bash completions configured (takes effect in new shells)"
 
 # ---------------------------------------------------------------------------
+# Fish shell (optional interactive shell)
+# ---------------------------------------------------------------------------
+if command -v fish &>/dev/null; then
+    info "Deploying fish config..."
+    mkdir -p "$HOME/.config/fish/conf.d" "$HOME/.config/fish/functions"
+    link_file "$CONFIG_DIR/fish/config.fish"                      "$HOME/.config/fish/config.fish"
+    link_file "$CONFIG_DIR/fish/conf.d/01-environment.fish"       "$HOME/.config/fish/conf.d/01-environment.fish"
+    link_file "$CONFIG_DIR/fish/conf.d/02-colors.fish"            "$HOME/.config/fish/conf.d/02-colors.fish"
+    link_file "$CONFIG_DIR/fish/conf.d/03-abbreviations.fish"     "$HOME/.config/fish/conf.d/03-abbreviations.fish"
+    link_file "$CONFIG_DIR/fish/conf.d/04-keybinds.fish"          "$HOME/.config/fish/conf.d/04-keybinds.fish"
+    link_file "$CONFIG_DIR/fish/functions/fish_prompt.fish"        "$HOME/.config/fish/functions/fish_prompt.fish"
+    link_file "$CONFIG_DIR/fish/functions/fish_right_prompt.fish"  "$HOME/.config/fish/functions/fish_right_prompt.fish"
+    link_file "$CONFIG_DIR/fish/functions/fish_greeting.fish"      "$HOME/.config/fish/functions/fish_greeting.fish"
+    link_file "$CONFIG_DIR/fish/functions/fish_mode_prompt.fish"   "$HOME/.config/fish/functions/fish_mode_prompt.fish"
+    link_file "$CONFIG_DIR/fish/functions/md.fish"                "$HOME/.config/fish/functions/md.fish"
+    ensure_local_override "$HOME/.config/fish/config.local.fish" "#"
+    ok "Fish config deployed"
+else
+    info "Fish not installed — skipping fish config"
+fi
+
+# ---------------------------------------------------------------------------
 # Dunst
 # ---------------------------------------------------------------------------
 info "Deploying dunst config..."
@@ -269,6 +291,7 @@ _accent_files=(
     "$CONFIG_DIR/sddm/theme.conf"
     "$CONFIG_DIR/gtk/settings.ini"
     "$CONFIG_DIR/kde/kdeglobals"   # hex colors won't match (RGB triplets), but Tela-<preset> will
+    "$CONFIG_DIR/fish/conf.d/02-colors.fish"
 )
 
 if [[ "$_HAS_SWAY" == true ]]; then
@@ -310,4 +333,6 @@ if [[ "$_HAS_SWAY" == true ]]; then
     echo "       # then edit: $CONFIG_DIR/kanshi/config"
 fi
 echo "  4. Reload shell prompt:  source ~/.bashrc"
+echo "  5. Launch fish:          fish   (optional — not the default shell)"
+echo "  6. Re-apply SDDM theme: bash scripts/theme-sddm.sh start"
 echo ""

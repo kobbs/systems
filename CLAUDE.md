@@ -23,6 +23,7 @@ config/               Dotfiles (deployed by scripts/dotfiles.sh)
   qt5ct/ qt6ct/       Qt theme settings
   kde/                KDE Frameworks color scheme (kdeglobals)
   bash/               Shell prompt
+  fish/               Fish shell (optional — prompt, abbreviations, vi mode)
 ```
 
 ## Theming stack

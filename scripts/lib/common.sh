@@ -163,28 +163,45 @@ apply_accent() {
     local file="$1"
     [[ -f "$file" ]] || return 0
 
+    # Two-pass replacement prevents chain reactions when presets share colors
+    # (e.g. orange SECONDARY == green PRIMARY, both #88DD00).
+    # Pass 1: source colors → unique placeholders
+    # Pass 2: placeholders → target colors
+    local -a targets=("$ACCENT_PRIMARY" "$ACCENT_DIM" "$ACCENT_DARK" "$ACCENT_BRIGHT" "$ACCENT_SECONDARY")
+    local -i idx=0
+
+    # Pass 1: replace all known preset colors with placeholders
     for preset in "${!COLOR_PRESETS[@]}"; do
+        [[ "$preset" == "$ACCENT_NAME" ]] && continue
         read -r p d dk br s _ansi <<< "${COLOR_PRESETS[$preset]}"
-        # Skip if this IS the target preset (no-op replacement)
+
+        local -i slot=0
+        for src in "$p" "$d" "$dk" "$br" "$s"; do
+            local src_bare="${src#\#}"
+            # #RRGGBB format
+            sed -i "s/${src}/@@ACCENT_${idx}_${slot}@@/gi" "$file"
+            # Bare hex (swaylock: key=RRGGBB at end of line)
+            sed -i "s/=${src_bare}$/=@@BARE_${idx}_${slot}@@/gi" "$file"
+            (( slot++ ))
+        done
+
+        # Icon theme name
+        sed -i "s/Tela-${preset}/Tela-${ACCENT_NAME}/g" "$file"
+        (( idx++ ))
+    done
+
+    # Pass 2: replace placeholders with target colors
+    idx=0
+    for preset in "${!COLOR_PRESETS[@]}"; do
         [[ "$preset" == "$ACCENT_NAME" ]] && continue
 
-        # Replace with hash prefix (#RRGGBB)
-        sed -i "s/${p}/${ACCENT_PRIMARY}/gi"     "$file"
-        sed -i "s/${d}/${ACCENT_DIM}/gi"         "$file"
-        sed -i "s/${dk}/${ACCENT_DARK}/gi"       "$file"
-        sed -i "s/${br}/${ACCENT_BRIGHT}/gi"     "$file"
-        sed -i "s/${s}/${ACCENT_SECONDARY}/gi"   "$file"
-
-        # Replace bare hex (no hash) for swaylock-style configs
-        local p_bare="${p#\#}" d_bare="${d#\#}" dk_bare="${dk#\#}" br_bare="${br#\#}"
-        local tp_bare="${ACCENT_PRIMARY#\#}" td_bare="${ACCENT_DIM#\#}" tdk_bare="${ACCENT_DARK#\#}" tbr_bare="${ACCENT_BRIGHT#\#}"
-        # Only replace bare hex at line start (swaylock format: key=RRGGBB)
-        sed -i "s/=${p_bare}$/=${tp_bare}/gi"    "$file"
-        sed -i "s/=${d_bare}$/=${td_bare}/gi"    "$file"
-        sed -i "s/=${dk_bare}$/=${tdk_bare}/gi"  "$file"
-        sed -i "s/=${br_bare}$/=${tbr_bare}/gi"  "$file"
-
-        # Replace icon theme name (Tela-green → Tela-orange, etc.)
-        sed -i "s/Tela-${preset}/Tela-${ACCENT_NAME}/g" "$file"
+        local -i slot=0
+        for target in "${targets[@]}"; do
+            local target_bare="${target#\#}"
+            sed -i "s/@@ACCENT_${idx}_${slot}@@/${target}/g" "$file"
+            sed -i "s/@@BARE_${idx}_${slot}@@/${target_bare}/g" "$file"
+            (( slot++ ))
+        done
+        (( idx++ ))
     done
 }

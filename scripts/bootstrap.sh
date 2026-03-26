@@ -206,6 +206,7 @@ SWAY_COMMON_PKGS=(
     bat
     bemenu
     bluez
+    fish
     google-roboto-mono-fonts
     jq
     kitty
