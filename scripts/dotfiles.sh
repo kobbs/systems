@@ -237,83 +237,9 @@ link_file "$CONFIG_DIR/tmux/tmux.conf" "$HOME/.config/tmux/tmux.conf"
 ensure_local_override "$HOME/.config/tmux/local.conf" "#"
 
 # ---------------------------------------------------------------------------
-# Icon theme (Tela, user-local — color follows ACCENT)
+# Accent color — handled by scripts/theme-accent-color.sh
 # ---------------------------------------------------------------------------
-# Installed to ~/.local/share/icons so no sudo is needed.
-# GTK and KDE apps find it via the standard XDG icon search path.
-
-load_accent
-require_cmd git "sudo dnf install -y git"
-
-_tela_dir="$HOME/.local/share/icons/Tela-${ACCENT_NAME}"
-_need_install=false
-
-if [[ ! -d "$_tela_dir" ]]; then
-    _need_install=true
-elif [[ -f "$_tela_dir/scalable/places/default-folder.svg" ]]; then
-    # Verify the installed theme actually has the right accent color.
-    # The Tela installer replaces #5294e2 (default blue) with the accent color.
-    # If the folder SVG still contains the default blue, the install was wrong.
-    if [[ "$ACCENT_NAME" != "standard" ]] \
-        && grep -qi '#5294e2' "$_tela_dir/scalable/places/default-folder.svg"; then
-        warn "Tela-${ACCENT_NAME} contains default blue icons — reinstalling..."
-        rm -rf "$_tela_dir" "${_tela_dir}-dark" "${_tela_dir}-light"
-        _need_install=true
-    fi
-else
-    # Directory exists but is missing expected files — corrupt install
-    warn "Tela-${ACCENT_NAME} is incomplete — reinstalling..."
-    rm -rf "$_tela_dir" "${_tela_dir}-dark" "${_tela_dir}-light"
-    _need_install=true
-fi
-
-if [[ "$_need_install" == true ]]; then
-    info "Installing Tela ${ACCENT_NAME} icon theme (user-local)..."
-    _tela_tmp=$(mktemp -d)
-    _cleanup_files+=("$_tela_tmp")
-    git clone --depth 1 https://github.com/vinceliuice/Tela-icon-theme.git "$_tela_tmp"
-    bash "$_tela_tmp/install.sh" -d "$HOME/.local/share/icons" "$ACCENT_NAME"
-    rm -rf "$_tela_tmp"
-    ok "Tela ${ACCENT_NAME} icon theme installed"
-else
-    ok "Tela ${ACCENT_NAME} icon theme already installed (skipped)"
-fi
-
-# ---------------------------------------------------------------------------
-# Apply accent color
-# ---------------------------------------------------------------------------
-info "Applying accent color: $ACCENT_NAME (${ACCENT_PRIMARY})..."
-
-_accent_files=(
-    "$CONFIG_DIR/kitty/kitty.conf"
-    "$CONFIG_DIR/tmux/tmux.conf"
-    "$CONFIG_DIR/dunst/dunstrc"
-    "$CONFIG_DIR/sddm/theme.conf"
-    "$CONFIG_DIR/gtk/settings.ini"
-    "$CONFIG_DIR/kde/kdeglobals"   # hex colors won't match (RGB triplets), but Tela-<preset> will
-    "$CONFIG_DIR/fish/conf.d/02-colors.fish"
-)
-
-if [[ "$_HAS_SWAY" == true ]]; then
-    _accent_files+=(
-        "$CONFIG_DIR/sway/config"
-        "$CONFIG_DIR/waybar/style.css"
-        "$CONFIG_DIR/swaylock/config"
-    )
-fi
-
-for _af in "${_accent_files[@]}"; do
-    apply_accent "$_af"
-done
-
-# bash/prompt.sh uses ANSI escape codes — replace hostname color
-# Targets the _GREEN variable line: _GREEN="$(_pc NN)"  → swap the ANSI code
-_prompt_file="$CONFIG_DIR/bash/prompt.sh"
-if [[ -f "$_prompt_file" ]]; then
-    sed -i "s/^\(_GREEN=\"\$(_pc \)[0-9]*/\1${ACCENT_ANSI}/" "$_prompt_file"
-fi
-
-ok "Accent color applied"
+info "Accent color is managed separately. Run: scripts/theme-accent-color.sh start"
 
 # ---------------------------------------------------------------------------
 # Summary
@@ -332,7 +258,7 @@ if [[ "$_HAS_SWAY" == true ]]; then
     echo "       swaymsg -t get_outputs"
     echo "       # then edit: $CONFIG_DIR/kanshi/config"
 fi
-echo "  4. Reload shell prompt:  source ~/.bashrc"
-echo "  5. Launch fish:          fish   (optional — not the default shell)"
-echo "  6. Re-apply SDDM theme: bash scripts/theme-sddm.sh start"
+echo "  4. Apply accent color:   bash scripts/theme-accent-color.sh start"
+echo "  5. Reload shell prompt:  source ~/.bashrc"
+echo "  6. Launch fish:          fish   (optional — not the default shell)"
 echo ""

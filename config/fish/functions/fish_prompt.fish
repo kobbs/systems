@@ -10,10 +10,8 @@ function fish_prompt --description 'Contextual left prompt'
 
     set -l parts
 
-    # SSH indicator: show hostname only when remote
-    if set -q SSH_CONNECTION
-        set -a parts (set_color $dim --bold)$hostname(set_color normal)' '
-    end
+    # Hostname in accent color (matches bash prompt behavior)
+    set -a parts (set_color $dim --bold)$hostname(set_color normal)' '
 
     # Working directory
     set -a parts (set_color brwhite)$cwd(set_color normal)

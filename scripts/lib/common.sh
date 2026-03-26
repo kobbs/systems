@@ -165,38 +165,37 @@ apply_accent() {
 
     # Two-pass replacement prevents chain reactions when presets share colors
     # (e.g. orange SECONDARY == green PRIMARY, both #88DD00).
-    # Pass 1: source colors → unique placeholders (keyed by role, not index)
-    # Pass 2: placeholders → target colors
+    # Pass 1: source colors → preset-specific placeholders (@@orange_PRIMARY@@)
+    # Pass 2: all placeholders → target colors
+    # Preset-specific names ensure no collisions between presets.
     local -a roles=(PRIMARY DIM DARK BRIGHT SECONDARY)
     local -a targets=("$ACCENT_PRIMARY" "$ACCENT_DIM" "$ACCENT_DARK" "$ACCENT_BRIGHT" "$ACCENT_SECONDARY")
 
-    # Pass 1: replace all known preset colors with placeholders
+    # Pass 1: known preset colors → preset-specific placeholders
     for preset in "${!COLOR_PRESETS[@]}"; do
         [[ "$preset" == "$ACCENT_NAME" ]] && continue
         read -r p d dk br s _ansi <<< "${COLOR_PRESETS[$preset]}"
 
         local -i i=0
         for src in "$p" "$d" "$dk" "$br" "$s"; do
-            local src_bare="${src#\#}"
-            local role="${roles[$i]}"
-            # #RRGGBB format
-            sed -i "s/${src}/@@ACCENT_${role}@@/gi" "$file"
-            # Bare hex (swaylock: key=RRGGBB at end of line)
-            sed -i "s/=${src_bare}$/=@@BARE_${role}@@/gi" "$file"
+            local src_bare="${src#\#}" role="${roles[$i]}"
+            sed -i "s/${src}/@@${preset}_${role}@@/gI" "$file"
+            sed -i "s/=${src_bare}$/=@@BARE_${preset}_${role}@@/gI" "$file"
             (( i++ ))
         done
 
-        # Icon theme name
         sed -i "s/Tela-${preset}/Tela-${ACCENT_NAME}/g" "$file"
     done
 
-    # Pass 2: replace placeholders with target colors
-    local -i i=0
-    for role in "${roles[@]}"; do
-        local target="${targets[$i]}"
-        local target_bare="${target#\#}"
-        sed -i "s/@@ACCENT_${role}@@/${target}/g" "$file"
-        sed -i "s/@@BARE_${role}@@/${target_bare}/g" "$file"
-        (( i++ ))
+    # Pass 2: all placeholders → target colors
+    for preset in "${!COLOR_PRESETS[@]}"; do
+        [[ "$preset" == "$ACCENT_NAME" ]] && continue
+        local -i i=0
+        for role in "${roles[@]}"; do
+            local target="${targets[$i]}" target_bare="${targets[$i]#\#}"
+            sed -i "s/@@${preset}_${role}@@/${target}/g" "$file"
+            sed -i "s/@@BARE_${preset}_${role}@@/${target_bare}/g" "$file"
+            (( i++ ))
+        done
     done
 }
