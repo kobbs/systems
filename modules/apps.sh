@@ -4,25 +4,54 @@
 # Handles: browsers, audio, Mesa/AMD, communication, Nextcloud, ProtonVPN,
 #          KeePassXC, KVM, desktop utilities (GTK/Qt), DevOps tooling.
 #
+# Reads package lists from apps.conf (single source of truth).
 # Assumes lib/common.sh, lib/config.sh are sourced.
 # pkg_install(), require_cmd(), find_fedora_version(), REPO_ROOT,
 # PROFILE_*, PKG_MANIFEST, FLATPAK_MANIFEST are available.
 
 # ---------------------------------------------------------------------------
-# Package lists (sorted alphabetically)
+# App registry parser
 # ---------------------------------------------------------------------------
 
-_BROWSER_PKGS=( brave-browser firefox )
-_MESA_PKGS=( libva-utils mesa-vdpau-drivers-freeworld mesa-vulkan-drivers )
-_COMM_FLATPAKS=( com.slack.Slack org.signal.Signal )
-_AUDIO_FLATPAKS=( com.github.wwmm.easyeffects )
-_MISC_PKGS=( keepassxc nextcloud-client )
-_KVM_PKGS=( libvirt libvirt-daemon-config-network qemu-kvm virt-install virt-manager virt-viewer )
-_GTK_DESKTOP_PKGS=( celluloid evince file-roller gnome-calculator loupe thunar )
-_QT_DESKTOP_PKGS=( ark dolphin gwenview haruna kcalc okular )
-_DEVOPS_PKGS=( ansible helm kind kubectl podman-compose yq )
+declare -gA _APP_SECTIONS=()
 
+# _load_apps_conf
+# Reads apps.conf into _APP_SECTIONS: section name → space-delimited package list.
+# Package names never contain spaces, so word-splitting gives arrays for free.
+_load_apps_conf() {
+    local file="${REPO_ROOT}/apps.conf"
+    if [[ ! -f "$file" ]]; then
+        warn "apps.conf not found at $file"
+        return 1
+    fi
+
+    _APP_SECTIONS=()
+    local section="" line
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Trim whitespace (same logic as lib/config.sh)
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+
+        # Skip blanks and comments
+        [[ -z "$line" || "$line" == \#* ]] && continue
+
+        # Section header
+        if [[ "$line" =~ ^\[([^]]+)\]$ ]]; then
+            section="${BASH_REMATCH[1]}"
+            continue
+        fi
+
+        # Bare package name under current section
+        [[ -z "$section" ]] && continue
+        _APP_SECTIONS["$section"]+="${_APP_SECTIONS["$section"]:+ }${line}"
+    done < "$file"
+}
+
+# ---------------------------------------------------------------------------
 # Version pins
+# ---------------------------------------------------------------------------
+
 _PROTON_RPM="${PROTON_RPM:-protonvpn-stable-release-1.0.1-2.noarch.rpm}"
 _K8S_VERSION="${K8S_VERSION:-v1.34}"
 
@@ -37,6 +66,7 @@ _flatpak_install() {
 }
 
 _apps_parse_flags() {
+    _load_apps_conf || return 1
     _APPS_INSTALL_DEVOPS=false
     _APPS_DESKTOP_TOOLKIT="$(profile_get apps desktop_toolkit 2>/dev/null || true)"
     local arg
@@ -49,26 +79,40 @@ _apps_parse_flags() {
 
 _get_all_rpm_targets() {
     local pkgs=()
-    pkgs+=("${_BROWSER_PKGS[@]}")
-    pkgs+=("${_MESA_PKGS[@]}")
-    pkgs+=("${_MISC_PKGS[@]}")
-    pkgs+=("${_KVM_PKGS[@]}")
+    local section
+    for section in "${!_APP_SECTIONS[@]}"; do
+        # Skip Flatpak sections
+        [[ "$section" == flatpak:* ]] && continue
 
-    if [[ "$_APPS_DESKTOP_TOOLKIT" == "gtk" ]]; then
-        pkgs+=("${_GTK_DESKTOP_PKGS[@]}")
-    elif [[ "$_APPS_DESKTOP_TOOLKIT" == "qt" ]]; then
-        pkgs+=("${_QT_DESKTOP_PKGS[@]}")
-    fi
+        # Check qualifier (portion after ':')
+        local qualifier="${section#*:}"
+        [[ "$qualifier" == "$section" ]] && qualifier=""   # no ':' found
 
-    if [[ "$_APPS_INSTALL_DEVOPS" == "true" ]]; then
-        pkgs+=("${_DEVOPS_PKGS[@]}")
-    fi
+        case "$qualifier" in
+            "")     ;;   # always included
+            devops) [[ "$_APPS_INSTALL_DEVOPS" == "true" ]] || continue ;;
+            gtk)    [[ "$_APPS_DESKTOP_TOOLKIT" == "gtk" ]] || continue ;;
+            qt)     [[ "$_APPS_DESKTOP_TOOLKIT" == "qt" ]] || continue ;;
+            *)      warn "Unknown qualifier ':$qualifier' in apps.conf section [$section]"; continue ;;
+        esac
 
+        local items
+        read -ra items <<< "${_APP_SECTIONS[$section]}"
+        pkgs+=("${items[@]}")
+    done
     printf '%s\n' "${pkgs[@]}"
 }
 
 _get_all_flatpak_targets() {
-    printf '%s\n' "${_COMM_FLATPAKS[@]}" "${_AUDIO_FLATPAKS[@]}"
+    local pkgs=()
+    local section
+    for section in "${!_APP_SECTIONS[@]}"; do
+        [[ "$section" == flatpak:* ]] || continue
+        local items
+        read -ra items <<< "${_APP_SECTIONS[$section]}"
+        pkgs+=("${items[@]}")
+    done
+    printf '%s\n' "${pkgs[@]}"
 }
 
 # ---------------------------------------------------------------------------
@@ -142,105 +186,29 @@ apps::apply() {
     preflight_checks
     require_cmd flatpak "sudo dnf install -y flatpak"
 
-    # --- Browsers ---
-    info "Installing browsers..."
-    pkg_install firefox
+    # --- Repo setup (before bulk install) ---
 
-    if ! grep -xF 'MOZ_ENABLE_WAYLAND=1' /etc/environment 2>/dev/null; then
-        echo 'MOZ_ENABLE_WAYLAND=1' | sudo tee -a /etc/environment > /dev/null
-        ok "MOZ_ENABLE_WAYLAND=1 added to /etc/environment"
-    fi
-
-    if [[ ! -f /etc/yum.repos.d/brave-browser.repo ]]; then
-        sudo dnf config-manager addrepo \
-            --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
-    fi
-    pkg_install brave-browser
-    ok "Browsers installed"
-
-    # --- Audio ---
-    info "Installing EasyEffects (Flatpak)..."
-    flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-    local app_id
-    for app_id in "${_AUDIO_FLATPAKS[@]}"; do
-        _flatpak_install "$app_id"
-    done
-    ok "Audio apps installed"
-
-    # --- Mesa ---
-    info "Installing Mesa/AMD acceleration packages..."
-    pkg_install "${_MESA_PKGS[@]}"
-    ok "Mesa packages installed"
-
-    # --- Communication ---
-    info "Installing communication apps (Flatpak)..."
-    for app_id in "${_COMM_FLATPAKS[@]}"; do
-        _flatpak_install "$app_id"
-    done
-    ok "Communication apps installed"
-
-    # --- Nextcloud + KeePassXC ---
-    info "Installing Nextcloud + KeePassXC..."
-    pkg_install "${_MISC_PKGS[@]}"
-    ok "Misc apps installed"
-
-    # --- ProtonVPN ---
-    if rpm -q proton-vpn-gtk-app &>/dev/null; then
-        ok "ProtonVPN already installed (skipped)"
-    else
-        info "Installing ProtonVPN..."
-        require_cmd curl "sudo dnf install -y curl"
-        local fedora_ver
-        fedora_ver=$(rpm -E %fedora)
-        local proton_base="https://repo.protonvpn.com"
-        local proton_url=""
-
-        for ver in "$fedora_ver" $(( fedora_ver - 1 )) $(( fedora_ver - 2 )); do
-            local candidate="${proton_base}/fedora-${ver}-stable/protonvpn-stable-release/${_PROTON_RPM}"
-            local attempt
-            for attempt in 1 2 3; do
-                if curl -sf --head --connect-timeout 5 "$candidate" -o /dev/null; then
-                    proton_url="$candidate"
-                    break 2
-                fi
-                (( attempt < 3 )) && sleep 2
-            done
-            [[ "$ver" -ne "$fedora_ver" ]] && warn "ProtonVPN repo not found for Fedora ${fedora_ver}, trying Fedora ${ver}"
-        done
-
-        if [[ -z "$proton_url" ]]; then
-            warn "Could not find a ProtonVPN repo for Fedora ${fedora_ver} or recent releases. Skipping."
-        else
-            sudo dnf install -y "$proton_url"
-            pkg_install proton-vpn-gtk-app
-            ok "ProtonVPN installed"
+    # Brave repo
+    if [[ "${_APP_SECTIONS[browsers]:-}" == *brave-browser* ]]; then
+        if [[ ! -f /etc/yum.repos.d/brave-browser.repo ]]; then
+            info "Adding Brave browser repo..."
+            sudo dnf config-manager addrepo \
+                --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
         fi
     fi
 
-    # --- KVM ---
-    info "Installing KVM / virt-manager..."
-    pkg_install "${_KVM_PKGS[@]}"
-    sudo usermod -aG libvirt "$(id -un)"
-    sudo systemctl enable --now libvirtd
-    ok "KVM stack installed"
-
-    # --- Desktop utilities ---
-    if [[ "$_APPS_DESKTOP_TOOLKIT" == "gtk" ]]; then
-        info "Installing GTK desktop utilities..."
-        pkg_install "${_GTK_DESKTOP_PKGS[@]}"
-        ok "GTK desktop utilities installed"
-    elif [[ "$_APPS_DESKTOP_TOOLKIT" == "qt" ]]; then
-        info "Installing Qt/KDE desktop utilities..."
-        pkg_install "${_QT_DESKTOP_PKGS[@]}"
-        ok "Qt/KDE desktop utilities installed"
+    # Firefox Wayland env var
+    if [[ "${_APP_SECTIONS[browsers]:-}" == *firefox* ]]; then
+        if ! grep -xF 'MOZ_ENABLE_WAYLAND=1' /etc/environment 2>/dev/null; then
+            echo 'MOZ_ENABLE_WAYLAND=1' | sudo tee -a /etc/environment > /dev/null
+            ok "MOZ_ENABLE_WAYLAND=1 added to /etc/environment"
+        fi
     fi
 
-    # --- DevOps ---
+    # DevOps repos (HashiCorp + Kubernetes)
+    local hashi_available=false
     if [[ "$_APPS_INSTALL_DEVOPS" == "true" ]]; then
-        info "Installing DevOps tooling..."
-
         # HashiCorp repo
-        local hashi_available=false
         if [[ ! -f /etc/yum.repos.d/hashicorp.repo ]]; then
             local hashi_ver
             hashi_ver=$(find_fedora_version \
@@ -284,17 +252,78 @@ gpgkey=https://pkgs.k8s.io/core:/stable:/${_K8S_VERSION}/rpm/repodata/repomd.xml
 KREPO
             sudo chmod 644 /etc/yum.repos.d/kubernetes.repo
         fi
+    fi
 
-        pkg_install "${_DEVOPS_PKGS[@]}"
+    # --- Bulk RPM install ---
+    local all_rpms
+    mapfile -t all_rpms < <(_get_all_rpm_targets)
+    if [[ ${#all_rpms[@]} -gt 0 ]]; then
+        info "Installing RPM packages..."
+        pkg_install "${all_rpms[@]}"
+        ok "RPM packages installed"
+    fi
 
+    # Terraform (conditional on HashiCorp repo — not in apps.conf)
+    if [[ "$_APPS_INSTALL_DEVOPS" == "true" ]]; then
         if [[ "$hashi_available" == true ]]; then
             pkg_install terraform
         else
             warn "terraform skipped (HashiCorp repo not available)"
         fi
-
         ok "DevOps stack installed"
     fi
+
+    # --- ProtonVPN (special repo probing — not in apps.conf) ---
+    if rpm -q proton-vpn-gtk-app &>/dev/null; then
+        ok "ProtonVPN already installed (skipped)"
+    else
+        info "Installing ProtonVPN..."
+        require_cmd curl "sudo dnf install -y curl"
+        local fedora_ver
+        fedora_ver=$(rpm -E %fedora)
+        local proton_base="https://repo.protonvpn.com"
+        local proton_url=""
+
+        for ver in "$fedora_ver" $(( fedora_ver - 1 )) $(( fedora_ver - 2 )); do
+            local candidate="${proton_base}/fedora-${ver}-stable/protonvpn-stable-release/${_PROTON_RPM}"
+            local attempt
+            for attempt in 1 2 3; do
+                if curl -sf --head --connect-timeout 5 "$candidate" -o /dev/null; then
+                    proton_url="$candidate"
+                    break 2
+                fi
+                (( attempt < 3 )) && sleep 2
+            done
+            [[ "$ver" -ne "$fedora_ver" ]] && warn "ProtonVPN repo not found for Fedora ${fedora_ver}, trying Fedora ${ver}"
+        done
+
+        if [[ -z "$proton_url" ]]; then
+            warn "Could not find a ProtonVPN repo for Fedora ${fedora_ver} or recent releases. Skipping."
+        else
+            sudo dnf install -y "$proton_url"
+            pkg_install proton-vpn-gtk-app
+            ok "ProtonVPN installed"
+        fi
+    fi
+
+    # --- Flatpaks ---
+    info "Installing Flatpak apps..."
+    flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    local app_id
+    while IFS= read -r app_id; do
+        _flatpak_install "$app_id"
+    done < <(_get_all_flatpak_targets)
+    ok "Flatpak apps installed"
+
+    # --- KVM post-install ---
+    if [[ -n "${_APP_SECTIONS[kvm]:-}" ]]; then
+        info "Configuring KVM..."
+        sudo usermod -aG libvirt "$(id -un)"
+        sudo systemctl enable --now libvirtd
+        ok "KVM stack configured"
+    fi
+
+    ok "Apps installed"
 }
 
 apps::status() {

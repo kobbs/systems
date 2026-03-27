@@ -670,23 +670,24 @@ phase 8: modules/dotfiles.sh (declarative symlink map + diff/status)
 
 ## Phase 9 — `modules/theme.sh`
 
-**Goal:** Merge `scripts/theme-accent-color.sh` + `scripts/theme-sddm.sh` into a single module.
+**Goal:** Merge `scripts/theme-accent-color.sh` + `scripts/theme-sddm.sh` into a single module with improved error handling and maintainability (see architecture-v2.md section 12).
 
-### 9.1 Extract from source scripts
+### 9.1 Constants
 
-| Source | What | Destination |
-|--------|------|-------------|
-| `theme-accent-color.sh:56-74` | `list_presets()` | `theme.sh` internal |
-| `theme-accent-color.sh:79-266` | `audit_accents()` + `_detect_preset*` helpers | `theme.sh` internal |
-| `theme-accent-color.sh:310-414` | Icon theme install + accent apply + bash prompt sed | `theme::apply` |
-| `theme-sddm.sh:100-201` | SDDM corners or stock theme | `theme::apply` (SDDM section) |
-
-### 9.2 Accent file list
-
-Declarative array (replaces `_accent_files` from theme-accent-color.sh:357-373):
+Replace hardcoded paths scattered throughout the module with constants at the top:
 
 ```bash
-# Files that receive hex color substitution via apply_accent
+_SDDM_THEME_BASE="/usr/share/sddm/themes"
+_TELA_ICON_BASE="$HOME/.local/share/icons"
+```
+
+All references to `/usr/share/sddm/themes/` and `$HOME/.local/share/icons/Tela-` use these constants.
+
+### 9.2 Accent file lists
+
+Declarative arrays (replaces `_accent_files` from theme-accent-color.sh:357-373):
+
+```bash
 _ACCENT_HEX_FILES=(
     "kitty/kitty.conf"
     "tmux/tmux.conf"
@@ -697,119 +698,309 @@ _ACCENT_HEX_FILES=(
     "fish/conf.d/02-colors.fish"
 )
 
-# Sway-conditional files
 _ACCENT_SWAY_FILES=(
     "sway/config"
     "waybar/style.css"
     "swaylock/config"
 )
 
-# Bash prompt (ANSI code, not hex — handled separately)
 _ACCENT_BASH_PROMPT="bash/prompt.sh"
 ```
 
-### 9.3 Implement contract
+### 9.3 Merge detection functions
+
+Replace three near-identical functions (`_detect_preset()`, `_detect_preset_bare()`, `_detect_bash_prompt()`) with a single unified function:
+
+```bash
+# _detect_preset_in_file <file> <method>
+# method: "hex"  — match PRIMARY color with '#' prefix (most config files)
+#         "bare" — match PRIMARY color without '#' (swaylock)
+#         "ansi" — match ANSI code number (bash prompt)
+# Returns: preset name, "missing", "broken", "unknown", or "mixed(a+b)"
+_detect_preset_in_file() {
+    local file="$1"
+    local method="$2"
+    [[ -f "$file" ]] || { echo "missing"; return; }
+
+    # Check for leftover placeholders (interrupted run)
+    if grep -q '@@[A-Za-z_]*@@' "$file" 2>/dev/null; then
+        echo "broken"
+        return
+    fi
+
+    # ANSI method has completely different matching logic
+    if [[ "$method" == "ansi" ]]; then
+        local ansi_code
+        ansi_code=$(sed -n 's/^_GREEN="\$(_pc \([0-9]*\))".*/\1/p' "$file")
+        [[ -z "$ansi_code" ]] && { echo "unknown"; return; }
+        local preset
+        for preset in "${!COLOR_PRESETS[@]}"; do
+            read -r _p _d _dk _br _s ansi <<< "${COLOR_PRESETS[$preset]}"
+            [[ "$ansi_code" == "$ansi" ]] && { echo "$preset"; return; }
+        done
+        echo "unknown(ANSI=$ansi_code)"
+        return
+    fi
+
+    # hex/bare: scan for primary color of each preset
+    local found="" count=0
+    local preset
+    for preset in "${!COLOR_PRESETS[@]}"; do
+        read -r p _rest <<< "${COLOR_PRESETS[$preset]}"
+        local needle="$p"
+        [[ "$method" == "bare" ]] && needle="${p#\#}"
+        if grep -qi "${needle}" "$file" 2>/dev/null; then
+            found="${found:+${found}+}${preset}"
+            count=$(( count + 1 ))
+        fi
+    done
+
+    if [[ "$count" -eq 0 ]]; then
+        echo "unknown"
+    elif [[ "$count" -eq 1 ]]; then
+        echo "$found"
+    else
+        echo "mixed($found)"
+    fi
+}
+```
+
+Update all call sites:
+- `audit_accents()`: change `_detect_preset "$f"` → `_detect_preset_in_file "$f" hex`, etc.
+- `theme::check()` and `theme::preview()`: same replacement.
+
+### 9.4 Extract shared detection loop
+
+Both `theme::check()` and `theme::preview()` iterate `_ACCENT_HEX_FILES` + `_ACCENT_SWAY_FILES` with identical detection logic. Extract into a helper that returns structured results:
+
+```bash
+# _detect_all_files
+# Populates _DETECT_RESULTS associative array: file → detected preset name
+# Must call load_all_presets + load_accent before calling.
+declare -gA _DETECT_RESULTS=()
+
+_detect_all_files() {
+    _DETECT_RESULTS=()
+    local config_dir="$REPO_ROOT/config"
+    local f
+
+    for f in "${_ACCENT_HEX_FILES[@]}"; do
+        _DETECT_RESULTS["$f"]=$(_detect_preset_in_file "$config_dir/$f" hex)
+    done
+
+    # Sway files: only detect if sway is present
+    if command -v sway &>/dev/null; then
+        for f in "${_ACCENT_SWAY_FILES[@]}"; do
+            _DETECT_RESULTS["$f"]=$(_detect_preset_in_file "$config_dir/$f" hex)
+        done
+    fi
+
+    # Bash prompt
+    _DETECT_RESULTS["$_ACCENT_BASH_PROMPT"]=$(
+        _detect_preset_in_file "$config_dir/$_ACCENT_BASH_PROMPT" ansi
+    )
+}
+```
+
+Usage in `theme::check()` — short-circuit on first mismatch:
 
 ```bash
 theme::check() {
-    load_all_presets
-    load_accent
-
-    local config_dir="$REPO_ROOT/config"
-
-    # Check accent colors in one representative file
-    for f in "${_ACCENT_HEX_FILES[@]}"; do
-        local detected
-        detected=$(_detect_preset "$config_dir/$f")
-        [[ "$detected" != "$ACCENT_NAME" ]] && return 0
+    # ... flag parsing, load_all_presets, load_accent ...
+    _detect_all_files
+    local f
+    for f in "${!_DETECT_RESULTS[@]}"; do
+        [[ "${_DETECT_RESULTS[$f]}" != "$ACCENT_NAME" ]] && return 0
     done
-
     # Check icon theme
-    local tela_dir="$HOME/.local/share/icons/Tela-${ACCENT_NAME}"
-    [[ ! -d "$tela_dir" ]] && return 0
-
+    [[ ! -d "${_TELA_ICON_BASE}/Tela-${ACCENT_NAME}" ]] && return 0
     return 1
 }
+```
 
+Usage in `theme::preview()` — format full table:
+
+```bash
 theme::preview() {
-    load_all_presets
-    load_accent
-    info "[theme] Preview:"
-    echo "  Target accent: $ACCENT_NAME"
-    echo "  PRIMARY=$ACCENT_PRIMARY DIM=$ACCENT_DIM DARK=$ACCENT_DARK BRIGHT=$ACCENT_BRIGHT SECONDARY=$ACCENT_SECONDARY"
-    echo ""
-
-    local config_dir="$REPO_ROOT/config"
+    # ... flag parsing, load_all_presets, load_accent ...
+    _detect_all_files
     echo "  Config file status:"
-    for f in "${_ACCENT_HEX_FILES[@]}"; do
-        local detected
-        detected=$(_detect_preset "$config_dir/$f")
+    local f
+    for f in "${!_DETECT_RESULTS[@]}"; do
+        local detected="${_DETECT_RESULTS[$f]}"
         local status="OK"
         [[ "$detected" != "$ACCENT_NAME" ]] && status="WILL UPDATE ($detected → $ACCENT_NAME)"
         printf "    %-40s %s\n" "config/$f" "$status"
     done
-
-    # Icon theme
-    local tela_dir="$HOME/.local/share/icons/Tela-${ACCENT_NAME}"
-    if [[ -d "$tela_dir" ]]; then
-        echo "  Icon theme: Tela-${ACCENT_NAME} [installed]"
-    else
-        echo "  Icon theme: Tela-${ACCENT_NAME} [WILL INSTALL]"
-    fi
-
-    # SDDM
-    if rpm -q sddm &>/dev/null; then
-        echo "  SDDM: will configure"
-    else
-        echo "  SDDM: not installed (skip)"
-    fi
-}
-
-theme::apply() {
-    load_all_presets
-    load_accent
-
-    # 1. Tela icon theme
-    #    (verbatim from theme-accent-color.sh:316-350)
-    _install_tela_icon_theme
-
-    # 2. Apply accent to config files
-    local config_dir="$REPO_ROOT/config"
-    for f in "${_ACCENT_HEX_FILES[@]}"; do
-        apply_accent "$config_dir/$f"
-    done
-    if command -v sway &>/dev/null; then
-        for f in "${_ACCENT_SWAY_FILES[@]}"; do
-            apply_accent "$config_dir/$f"
-        done
-    fi
-
-    # 3. Bash prompt ANSI code
-    local prompt_file="$config_dir/$_ACCENT_BASH_PROMPT"
-    if [[ -f "$prompt_file" ]]; then
-        sed -i "s/^\(_GREEN=\"\$(_pc \)[0-9]*/\1${ACCENT_ANSI}/" "$prompt_file"
-    fi
-
-    # 4. SDDM (if installed)
-    if rpm -q sddm &>/dev/null; then
-        _apply_sddm "$@"
-    fi
-
-    ok "Theme applied: $ACCENT_NAME"
-}
-
-theme::status() {
-    load_all_presets
-    load_accent
-    local tela="not installed"
-    [[ -d "$HOME/.local/share/icons/Tela-${ACCENT_NAME}" ]] && tela="installed"
-    local sddm="not installed"
-    rpm -q sddm &>/dev/null && sddm="$(cat /etc/sddm.conf.d/theme.conf 2>/dev/null | grep Current | cut -d= -f2)"
-    echo "  accent=$ACCENT_NAME icon=Tela-${ACCENT_NAME}($tela) sddm=$sddm"
+    # ... icon theme and SDDM status ...
 }
 ```
 
-### 9.4 Module-specific flags
+### 9.5 Split `_apply_sddm()`
+
+Break the 107-line `_apply_sddm()` into focused helpers:
+
+```bash
+# _install_sddm_corners <theme_dir>
+# Git clones sddm-theme-corners, applies Qt6 patch, adds dark background.
+_install_sddm_corners() {
+    local sddm_theme_dir="$1"
+
+    pkg_install qt6-qt5compat qt6-qtsvg
+
+    if [[ -d "$sddm_theme_dir" ]]; then
+        ok "sddm-theme-corners already installed (skipped)"
+    else
+        local corners_tmp="${_THEME_TMPDIR}/corners"
+        if ! git clone --depth 1 https://github.com/aczw/sddm-theme-corners.git "$corners_tmp" 2>&1; then
+            warn "Failed to clone sddm-theme-corners — skipping"
+            return 0
+        fi
+        sudo cp -r "$corners_tmp/corners" "$sddm_theme_dir" \
+            || { warn "Failed to install sddm-theme-corners"; return 0; }
+        ok "sddm-theme-corners installed"
+    fi
+
+    sudo chmod -R a+rX "$sddm_theme_dir"
+
+    # Qt5 → Qt6 patch
+    if compgen -G "$sddm_theme_dir/components/*.qml" >/dev/null; then
+        sudo sed -i 's/import QtGraphicalEffects.*/import Qt5Compat.GraphicalEffects/' \
+            "$sddm_theme_dir"/components/*.qml
+    fi
+
+    # Dark background color
+    if [[ -f "$sddm_theme_dir/Main.qml" ]]; then
+        if ! sudo grep -q 'color: "#222222"' "$sddm_theme_dir/Main.qml"; then
+            sudo sed -i '/id: root/a\    color: "#222222"' "$sddm_theme_dir/Main.qml"
+        fi
+    fi
+
+    # Deploy theme.conf with accent colors
+    local theme_tmp="${_THEME_TMPDIR}/sddm-theme.conf"
+    cp "$REPO_ROOT/config/sddm/theme.conf" "$theme_tmp"
+    apply_accent "$theme_tmp"
+    sudo cp "$theme_tmp" "$sddm_theme_dir/theme.conf"
+    sudo chmod 644 "$sddm_theme_dir/theme.conf"
+}
+
+# _apply_sddm_stock <theme_dir>
+# Configures stock Fedora SDDM theme with dark grey background.
+_apply_sddm_stock() {
+    local sddm_theme_dir="$1"
+    local bg_src="$REPO_ROOT/config/sddm/background-dark-grey.png"
+
+    if [[ ! -d "$sddm_theme_dir" ]]; then
+        warn "Stock SDDM theme not found at $sddm_theme_dir — is sddm installed?"
+        return 0
+    fi
+
+    sudo cp "$bg_src" "$sddm_theme_dir/background-dark-grey.png" \
+        || { warn "Failed to copy SDDM background"; return 0; }
+    sudo chmod 644 "$sddm_theme_dir/background-dark-grey.png"
+
+    local user_conf_tmp="${_THEME_TMPDIR}/sddm-user.conf"
+    printf '[General]\nbackground=background-dark-grey.png\n' > "$user_conf_tmp"
+    if ! sudo cmp -s "$user_conf_tmp" "$sddm_theme_dir/theme.conf.user" 2>/dev/null; then
+        sudo cp "$user_conf_tmp" "$sddm_theme_dir/theme.conf.user"
+        sudo chmod 644 "$sddm_theme_dir/theme.conf.user"
+    fi
+    ok "Dark grey background applied to stock SDDM theme"
+}
+
+# _set_sddm_active_theme <theme_name>
+# Writes /etc/sddm.conf.d/theme.conf, disables greetd if active, enables sddm.
+_set_sddm_active_theme() {
+    local theme_name="$1"
+    local sddm_conf_tmp="${_THEME_TMPDIR}/sddm-active.conf"
+    printf '[Theme]\nCurrent=%s\n' "$theme_name" > "$sddm_conf_tmp"
+    sudo mkdir -p /etc/sddm.conf.d
+    if ! sudo cmp -s "$sddm_conf_tmp" /etc/sddm.conf.d/theme.conf 2>/dev/null; then
+        sudo cp "$sddm_conf_tmp" /etc/sddm.conf.d/theme.conf
+        sudo chmod 644 /etc/sddm.conf.d/theme.conf
+    fi
+
+    if systemctl is-enabled greetd &>/dev/null; then
+        sudo systemctl disable greetd
+    fi
+    sudo systemctl enable sddm
+    ok "SDDM configured (theme: $theme_name)"
+}
+
+# _apply_sddm — Orchestrator
+# Calls the appropriate variant based on --corners flag, then sets active theme.
+_apply_sddm() {
+    if ! rpm -q sddm &>/dev/null; then
+        info "SDDM not installed — skipping SDDM theming"
+        return 0
+    fi
+
+    info "Configuring SDDM theme..."
+
+    if [[ "$_THEME_CORNERS" == true ]]; then
+        _install_sddm_corners "${_SDDM_THEME_BASE}/corners"
+        _set_sddm_active_theme "corners"
+    else
+        _apply_sddm_stock "${_SDDM_THEME_BASE}/03-sway-fedora"
+        _set_sddm_active_theme "03-sway-fedora"
+    fi
+}
+```
+
+### 9.6 Error handling: temp directory + trap cleanup
+
+All temp files in `theme::apply()` are created under a single temp directory, cleaned up via trap:
+
+```bash
+_THEME_TMPDIR=""
+
+_theme_cleanup() {
+    [[ -n "$_THEME_TMPDIR" ]] && rm -rf "$_THEME_TMPDIR"
+}
+
+theme::apply() {
+    _THEME_TMPDIR=$(mktemp -d)
+    trap _theme_cleanup EXIT
+
+    # ... all operations use $_THEME_TMPDIR for temp files ...
+}
+```
+
+This replaces the scattered `mktemp` + `rm -f` pairs throughout the current code (currently ~6 individual temp files, each with its own `rm`).
+
+### 9.7 Validate preset before apply
+
+Add validation at the top of `theme::apply()` after loading:
+
+```bash
+theme::apply() {
+    # ... flag parsing, load_all_presets, load_accent ...
+
+    if [[ -z "${COLOR_PRESETS[$ACCENT_NAME]+x}" ]]; then
+        warn "Unknown accent preset: $ACCENT_NAME (available: ${!COLOR_PRESETS[*]})"
+        return 1
+    fi
+
+    # ... rest of apply ...
+}
+```
+
+### 9.8 Consistent logging
+
+Ensure all code paths log their outcome:
+
+| Code path | Before | After |
+|-----------|--------|-------|
+| SDDM not installed | silent `return 0` | `info "SDDM not installed — skipping"` |
+| Git clone fails | unhandled | `warn "Failed to clone ... — skipping"` |
+| File copy to system path fails | unhandled | `warn "Failed to copy ..."` |
+| Stock SDDM theme dir missing | `warn` but no return value context | `warn` + explicit `return 0` |
+| Accent files updated | `ok "Config files updated"` | unchanged (already good) |
+| Icon theme skipped | `ok "... already installed (skipped)"` | unchanged |
+
+### 9.9 Module-specific flags
+
+Unchanged from current implementation:
 
 - `--accent <name>`: override profile accent for this run
 - `--list`: call `list_presets()`, exit
@@ -818,86 +1009,363 @@ theme::status() {
 
 Flag parsing happens before contract dispatch. `--list` and `--audit` are read-only and bypass the check/preview/apply flow.
 
-### 9.5 Internal helpers
+### 9.10 Full module structure
 
-- `_install_tela_icon_theme()`: from theme-accent-color.sh lines 316-350
-- `_apply_sddm()`: from theme-sddm.sh lines 96-201
-- `_detect_preset()`, `_detect_preset_bare()`, `_detect_bash_prompt()`: from theme-accent-color.sh lines 79-159
-- `audit_accents()`: from theme-accent-color.sh lines 161-266
-- `list_presets()`: from theme-accent-color.sh lines 56-74
-
-### 9.6 Commit
+Final file structure after all changes:
 
 ```
-phase 9: modules/theme.sh (accent colors + icon theme + SDDM)
+modules/theme.sh
+├── Constants (_SDDM_THEME_BASE, _TELA_ICON_BASE)
+├── File lists (_ACCENT_HEX_FILES, _ACCENT_SWAY_FILES, _ACCENT_BASH_PROMPT)
+├── Detection
+│   ├── _detect_preset_in_file()      # unified — replaces 3 functions
+│   └── _detect_all_files()           # shared loop — replaces duplication in check/preview
+├── Display
+│   ├── list_presets()                # --list handler
+│   └── audit_accents()              # --audit handler (uses _detect_preset_in_file)
+├── Apply helpers
+│   ├── _install_tela_icon_theme()   # unchanged logic
+│   ├── _install_sddm_corners()     # extracted from _apply_sddm
+│   ├── _apply_sddm_stock()         # extracted from _apply_sddm
+│   ├── _set_sddm_active_theme()    # extracted from _apply_sddm
+│   └── _apply_sddm()               # orchestrator (now ~15 lines)
+├── Error handling
+│   └── _theme_cleanup()             # trap EXIT handler
+├── Flag parsing
+│   └── _theme_parse_flags()         # unchanged
+└── Module contract
+    ├── theme::check()               # uses _detect_all_files
+    ├── theme::preview()             # uses _detect_all_files
+    ├── theme::apply()               # trap + validate + existing logic
+    └── theme::status()              # unchanged
+```
+
+### 9.11 Verify
+
+1. `./setup theme` — dry-run preview should show same output as before.
+2. `./setup theme --list` — should list all presets with colors.
+3. `./setup theme --audit` — should audit all config files.
+4. `./setup theme --accent orange --apply` — switch accent, verify config files updated.
+5. `./setup theme --audit` — should show no anomalies after apply.
+6. Interrupt `theme::apply` mid-run (Ctrl+C) — verify no temp files left behind.
+
+### 9.12 Commit
+
+```
+phase 9: modules/theme.sh (structural improvements + error handling)
 ```
 
 ---
 
-## Phase 10 — `modules/apps.sh`
+## Phase 10 — `apps.conf` + `modules/apps.sh`
 
-**Goal:** User applications with profile-driven toolkit selection.
+**Goal:** Data-driven app registry with profile-driven toolkit selection (see architecture-v2.md section 11).
 
-### 10.1 Extract from `scripts/apps.sh`
+### 10.1 Create `apps.conf`
 
-The entire script becomes this module. Key change: `desktop_toolkit` is read from `PROFILE_APPS_DESKTOP_TOOLKIT` instead of `--gtk-apps`/`--qt-apps` flags.
+New file at repo root. INI-style with bare package names (one per line) under section headers. Section names encode package type and install conditions.
 
-### 10.2 Package lists as arrays
+```ini
+# apps.conf — App registry (single source of truth for modules/apps.sh)
+# Adding/removing an app = editing this file. No code changes needed.
+
+[browsers]
+brave-browser
+firefox
+
+[mesa]
+libva-utils
+mesa-vdpau-drivers-freeworld
+mesa-vulkan-drivers
+
+[misc]
+keepassxc
+nextcloud-client
+
+[kvm]
+libvirt
+libvirt-daemon-config-network
+qemu-kvm
+virt-install
+virt-manager
+virt-viewer
+
+[desktop:gtk]
+celluloid
+evince
+file-roller
+gnome-calculator
+loupe
+thunar
+
+[desktop:qt]
+ark
+dolphin
+gwenview
+haruna
+kcalc
+okular
+
+[devops]
+ansible
+helm
+kind
+kubectl
+podman-compose
+yq
+
+[flatpak:audio]
+com.github.wwmm.easyeffects
+
+[flatpak:comm]
+com.slack.Slack
+org.signal.Signal
+```
+
+Section name conventions:
+- `[section]` — always-installed RPM packages
+- `[section:devops]` — RPM packages, only with `--devops` flag
+- `[section:gtk]` / `[section:qt]` — RPM packages, only when `desktop_toolkit` matches
+- `[flatpak:section]` — always-installed Flatpak apps
+
+### 10.2 Add `_load_apps_conf` parser to `apps.sh`
+
+A dedicated parser in `apps.sh` — does **not** use `lib/config.sh`'s `_parse_ini` because `apps.conf` has bare lines (not `key = value` pairs). This avoids contaminating `_CONFIG` and needs no save/restore gymnastics.
 
 ```bash
-_BROWSER_PKGS=( firefox brave-browser )
-_AUDIO_FLATPAKS=( com.github.wwmm.easyeffects )
+declare -gA _APP_SECTIONS=()
+
+# _load_apps_conf
+# Reads apps.conf into _APP_SECTIONS: section name → space-delimited package list.
+# Package names never contain spaces, so word-splitting gives arrays for free.
+_load_apps_conf() {
+    local file="${REPO_ROOT}/apps.conf"
+    if [[ ! -f "$file" ]]; then
+        warn "apps.conf not found at $file"
+        return 1
+    fi
+
+    _APP_SECTIONS=()
+    local section="" line
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Trim whitespace (same logic as lib/config.sh)
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+
+        # Skip blanks and comments
+        [[ -z "$line" || "$line" == \#* ]] && continue
+
+        # Section header
+        if [[ "$line" =~ ^\[([^]]+)\]$ ]]; then
+            section="${BASH_REMATCH[1]}"
+            continue
+        fi
+
+        # Bare package name under current section
+        [[ -z "$section" ]] && continue
+        _APP_SECTIONS["$section"]+="${_APP_SECTIONS["$section"]:+ }${line}"
+    done < "$file"
+}
+```
+
+### 10.3 Replace `_get_all_rpm_targets` and `_get_all_flatpak_targets`
+
+The new versions iterate `_APP_SECTIONS` and filter by section name convention, replacing all the hardcoded `_*_PKGS` arrays and explicit `if/elif` blocks:
+
+```bash
+_get_all_rpm_targets() {
+    local pkgs=()
+    local section
+    for section in "${!_APP_SECTIONS[@]}"; do
+        # Skip Flatpak sections
+        [[ "$section" == flatpak:* ]] && continue
+
+        # Check qualifier (portion after ':')
+        local qualifier="${section#*:}"
+        [[ "$qualifier" == "$section" ]] && qualifier=""   # no ':' found
+
+        case "$qualifier" in
+            "")     ;;   # always included
+            devops) [[ "$_APPS_INSTALL_DEVOPS" == "true" ]] || continue ;;
+            gtk)    [[ "$_APPS_DESKTOP_TOOLKIT" == "gtk" ]] || continue ;;
+            qt)     [[ "$_APPS_DESKTOP_TOOLKIT" == "qt" ]] || continue ;;
+            *)      warn "Unknown qualifier ':$qualifier' in apps.conf section [$section]"; continue ;;
+        esac
+
+        local items
+        read -ra items <<< "${_APP_SECTIONS[$section]}"
+        pkgs+=("${items[@]}")
+    done
+    printf '%s\n' "${pkgs[@]}"
+}
+
+_get_all_flatpak_targets() {
+    local pkgs=()
+    local section
+    for section in "${!_APP_SECTIONS[@]}"; do
+        [[ "$section" == flatpak:* ]] || continue
+        local items
+        read -ra items <<< "${_APP_SECTIONS[$section]}"
+        pkgs+=("${items[@]}")
+    done
+    printf '%s\n' "${pkgs[@]}"
+}
+```
+
+### 10.4 Update `_apps_parse_flags`
+
+Add `_load_apps_conf` call at the start:
+
+```bash
+_apps_parse_flags() {
+    _load_apps_conf || return 1
+    _APPS_INSTALL_DEVOPS=false
+    _APPS_DESKTOP_TOOLKIT="$(profile_get apps desktop_toolkit 2>/dev/null || true)"
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --devops) _APPS_INSTALL_DEVOPS=true ;;
+        esac
+    done
+}
+```
+
+### 10.5 Remove hardcoded arrays
+
+Delete these arrays from the top of `apps.sh` (current lines 15-23):
+
+```bash
+# REMOVE:
+_BROWSER_PKGS=( brave-browser firefox )
 _MESA_PKGS=( libva-utils mesa-vdpau-drivers-freeworld mesa-vulkan-drivers )
 _COMM_FLATPAKS=( com.slack.Slack org.signal.Signal )
-_MISC_PKGS=( nextcloud-client keepassxc )
+_AUDIO_FLATPAKS=( com.github.wwmm.easyeffects )
+_MISC_PKGS=( keepassxc nextcloud-client )
 _KVM_PKGS=( libvirt libvirt-daemon-config-network qemu-kvm virt-install virt-manager virt-viewer )
 _GTK_DESKTOP_PKGS=( celluloid evince file-roller gnome-calculator loupe thunar )
 _QT_DESKTOP_PKGS=( ark dolphin gwenview haruna kcalc okular )
 _DEVOPS_PKGS=( ansible helm kind kubectl podman-compose yq )
 ```
 
-### 10.3 Implement contract
+### 10.6 Update `apps::apply`
+
+The `apply` function retains its special-case blocks for procedural setup (repo configuration, systemd enablement) but reads package names from `_APP_SECTIONS` instead of hardcoded arrays.
+
+**What changes:**
+- Package names come from `_APP_SECTIONS["browsers"]`, `_APP_SECTIONS["mesa"]`, etc.
+- The `if gtk / elif qt` branching for desktop utilities is removed — `_get_all_rpm_targets` handles filtering automatically.
+- `_DEVOPS_PKGS` references become `_APP_SECTIONS["devops"]`.
+
+**What stays the same (special install logic):**
+- Brave repo setup (`/etc/yum.repos.d/brave-browser.repo`)
+- Firefox `MOZ_ENABLE_WAYLAND=1` in `/etc/environment`
+- ProtonVPN repo probing (try current and previous Fedora versions)
+- HashiCorp repo setup + version pinning
+- Kubernetes repo template
+- KVM `usermod -aG libvirt` + `systemctl enable libvirtd`
+- Flathub remote setup
+
+These remain as imperative code in `apps::apply` — `apps.conf` governs *what*, not *how*.
+
+**Updated `apps::apply` structure:**
 
 ```bash
-apps::check() {
-    # Build target package list based on profile + flags
-    # Check rpm -q and flatpak list for each
-    # Return 0 if any missing
-}
-
-apps::preview() {
-    info "[apps] Preview:"
-    # Group by category, show what would be installed
-    echo "  Browsers: ..."
-    echo "  Communication (Flatpak): ..."
-    echo "  Desktop toolkit ($(profile_get apps desktop_toolkit)): ..."
-    # etc.
-}
-
 apps::apply() {
-    # All install logic from scripts/apps.sh
-    # Brave repo setup, ProtonVPN repo discovery, KVM setup, etc.
-    # Desktop toolkit from profile instead of CLI flag
-}
+    _apps_parse_flags "$@"
+    preflight_checks
+    require_cmd flatpak "sudo dnf install -y flatpak"
 
-apps::status() {
-    local rpm_count flatpak_count
-    rpm_count=$(wc -l < "$PKG_MANIFEST" 2>/dev/null || echo 0)
-    flatpak_count=$(wc -l < "$FLATPAK_MANIFEST" 2>/dev/null || echo 0)
-    echo "  ${rpm_count} RPM + ${flatpak_count} Flatpak managed"
+    # --- Install all RPMs (generic path) ---
+    # Sections that need special repo setup are handled first,
+    # then pkg_install is called with the full RPM target list.
+
+    # Brave repo (if brave-browser is in the registry)
+    if [[ "${_APP_SECTIONS[browsers]:-}" == *brave-browser* ]]; then
+        if [[ ! -f /etc/yum.repos.d/brave-browser.repo ]]; then
+            sudo dnf config-manager addrepo \
+                --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
+        fi
+    fi
+
+    # Firefox Wayland env var
+    if [[ "${_APP_SECTIONS[browsers]:-}" == *firefox* ]]; then
+        if ! grep -xF 'MOZ_ENABLE_WAYLAND=1' /etc/environment 2>/dev/null; then
+            echo 'MOZ_ENABLE_WAYLAND=1' | sudo tee -a /etc/environment > /dev/null
+        fi
+    fi
+
+    # ProtonVPN repo (special: not in apps.conf, has its own repo probing)
+    # ... existing ProtonVPN logic unchanged ...
+
+    # HashiCorp + Kubernetes repos (if devops section active)
+    if [[ "$_APPS_INSTALL_DEVOPS" == "true" ]]; then
+        # ... existing repo setup logic unchanged ...
+    fi
+
+    # Install all RPM targets from registry
+    local all_rpms
+    mapfile -t all_rpms < <(_get_all_rpm_targets)
+    if [[ ${#all_rpms[@]} -gt 0 ]]; then
+        info "Installing RPM packages..."
+        pkg_install "${all_rpms[@]}"
+    fi
+
+    # Terraform (conditional on HashiCorp repo)
+    if [[ "$_APPS_INSTALL_DEVOPS" == "true" && "$hashi_available" == true ]]; then
+        pkg_install terraform
+    fi
+
+    # Install all Flatpak targets from registry
+    flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    local app_id
+    while IFS= read -r app_id; do
+        _flatpak_install "$app_id"
+    done < <(_get_all_flatpak_targets)
+
+    # KVM post-install (if kvm section packages were installed)
+    if [[ -n "${_APP_SECTIONS[kvm]:-}" ]]; then
+        sudo usermod -aG libvirt "$(id -un)"
+        sudo systemctl enable --now libvirtd
+    fi
+
+    ok "Apps installed"
 }
 ```
 
-### 10.4 Module-specific flags
+### 10.7 `apps::check`, `apps::preview`, `apps::status`
 
-- `--devops`: include DevOps tooling (Terraform, Ansible, Helm, kubectl, kind, podman-compose, yq)
+These are mostly unchanged — they already call `_get_all_rpm_targets` and `_get_all_flatpak_targets`, which now read from `_APP_SECTIONS` instead of hardcoded arrays.
+
+`apps::check` and `apps::preview` get validation at the start (via `_apps_parse_flags` calling `_load_apps_conf`): if `apps.conf` is missing, the module fails with a clear error.
+
+### 10.8 Module-specific flags
+
+- `--devops`: include sections with `:devops` qualifier (plus Terraform if HashiCorp repo available)
 
 Desktop toolkit selection comes from profile (`desktop_toolkit = gtk` or `qt`), not from CLI flags.
 
-### 10.5 Commit
+### 10.9 Files changed
+
+| File | Change |
+|------|--------|
+| `apps.conf` (new) | App registry — all package names extracted from current `apps.sh` arrays |
+| `modules/apps.sh` | Add `_load_apps_conf` parser, update `_get_all_rpm_targets`/`_get_all_flatpak_targets`, update `apps::apply`, remove hardcoded arrays |
+| `lib/config.sh` | No changes |
+
+### 10.10 Verify
+
+1. `./setup apps` — dry-run should list the same packages as before.
+2. `./setup apps --devops` — should additionally list devops packages.
+3. Compare `_get_all_rpm_targets` output before and after (pipe to `sort` and `diff`).
+4. Add a test package to `apps.conf` under `[misc]`, verify it appears in preview.
+5. Remove the test package, verify it disappears from preview.
+6. Delete `apps.conf`, run `./setup apps` — should fail with clear error, not silently install nothing.
+
+### 10.11 Commit
 
 ```
-phase 10: modules/apps.sh (user applications)
+phase 10: apps.conf registry + modules/apps.sh refactor
 ```
 
 ---

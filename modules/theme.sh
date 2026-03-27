@@ -8,6 +8,13 @@
 # require_cmd() are available.
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_SDDM_THEME_BASE="/usr/share/sddm/themes"
+_TELA_ICON_BASE="$HOME/.local/share/icons"
+
+# ---------------------------------------------------------------------------
 # File lists for accent color application
 # ---------------------------------------------------------------------------
 
@@ -30,23 +37,47 @@ _ACCENT_SWAY_FILES=(
 _ACCENT_BASH_PROMPT="bash/prompt.sh"
 
 # ---------------------------------------------------------------------------
-# Detection helpers (from theme-accent-color.sh)
+# Detection helpers
 # ---------------------------------------------------------------------------
 
-_detect_preset() {
+# _detect_preset_in_file <file> <method>
+# method: "hex"  — match PRIMARY color with '#' prefix (most config files)
+#         "bare" — match PRIMARY color without '#' (swaylock)
+#         "ansi" — match ANSI code number (bash prompt)
+# Returns: preset name, "missing", "broken", "unknown", or "mixed(a+b)"
+_detect_preset_in_file() {
     local file="$1"
+    local method="$2"
     [[ -f "$file" ]] || { echo "missing"; return; }
 
+    # Check for leftover placeholders (interrupted run)
     if grep -q '@@[A-Za-z_]*@@' "$file" 2>/dev/null; then
         echo "broken"
         return
     fi
 
+    # ANSI method has completely different matching logic
+    if [[ "$method" == "ansi" ]]; then
+        local ansi_code
+        ansi_code=$(sed -n 's/^_GREEN="\$(_pc \([0-9]*\))".*/\1/p' "$file")
+        [[ -z "$ansi_code" ]] && { echo "unknown"; return; }
+        local preset
+        for preset in "${!COLOR_PRESETS[@]}"; do
+            read -r _p _d _dk _br _s ansi <<< "${COLOR_PRESETS[$preset]}"
+            [[ "$ansi_code" == "$ansi" ]] && { echo "$preset"; return; }
+        done
+        echo "unknown(ANSI=$ansi_code)"
+        return
+    fi
+
+    # hex/bare: scan for primary color of each preset
     local found="" count=0
     local preset
     for preset in "${!COLOR_PRESETS[@]}"; do
         read -r p _rest <<< "${COLOR_PRESETS[$preset]}"
-        if grep -qi "${p}" "$file" 2>/dev/null; then
+        local needle="$p"
+        [[ "$method" == "bare" ]] && needle="${p#\#}"
+        if grep -qi "${needle}" "$file" 2>/dev/null; then
             found="${found:+${found}+}${preset}"
             count=$(( count + 1 ))
         fi
@@ -61,52 +92,31 @@ _detect_preset() {
     fi
 }
 
-_detect_preset_bare() {
-    local file="$1"
-    [[ -f "$file" ]] || { echo "missing"; return; }
+# _detect_all_files
+# Populates _DETECT_RESULTS associative array: file → detected preset name.
+# Must call load_all_presets + load_accent before calling.
+declare -gA _DETECT_RESULTS=()
 
-    if grep -q '@@[A-Za-z_]*@@' "$file" 2>/dev/null; then
-        echo "broken"
-        return
-    fi
+_detect_all_files() {
+    _DETECT_RESULTS=()
+    local config_dir="$REPO_ROOT/config"
+    local f
 
-    local found="" count=0
-    local preset
-    for preset in "${!COLOR_PRESETS[@]}"; do
-        read -r p _rest <<< "${COLOR_PRESETS[$preset]}"
-        local bare="${p#\#}"
-        if grep -qi "${bare}" "$file" 2>/dev/null; then
-            found="${found:+${found}+}${preset}"
-            count=$(( count + 1 ))
-        fi
+    for f in "${_ACCENT_HEX_FILES[@]}"; do
+        _DETECT_RESULTS["$f"]=$(_detect_preset_in_file "$config_dir/$f" hex)
     done
 
-    if [[ "$count" -eq 0 ]]; then
-        echo "unknown"
-    elif [[ "$count" -eq 1 ]]; then
-        echo "$found"
-    else
-        echo "mixed($found)"
+    # Sway files: only detect if sway is present
+    if command -v sway &>/dev/null; then
+        for f in "${_ACCENT_SWAY_FILES[@]}"; do
+            _DETECT_RESULTS["$f"]=$(_detect_preset_in_file "$config_dir/$f" hex)
+        done
     fi
-}
 
-_detect_bash_prompt() {
-    local file="$1"
-    [[ -f "$file" ]] || { echo "missing"; return; }
-
-    local ansi_code
-    ansi_code=$(sed -n 's/^_GREEN="\$(_pc \([0-9]*\))".*/\1/p' "$file")
-    [[ -z "$ansi_code" ]] && { echo "unknown"; return; }
-
-    local preset
-    for preset in "${!COLOR_PRESETS[@]}"; do
-        read -r _p _d _dk _br _s ansi <<< "${COLOR_PRESETS[$preset]}"
-        if [[ "$ansi_code" == "$ansi" ]]; then
-            echo "$preset"
-            return
-        fi
-    done
-    echo "unknown(ANSI=$ansi_code)"
+    # Bash prompt
+    _DETECT_RESULTS["$_ACCENT_BASH_PROMPT"]=$(
+        _detect_preset_in_file "$config_dir/$_ACCENT_BASH_PROMPT" ansi
+    )
 }
 
 # ---------------------------------------------------------------------------
@@ -177,13 +187,9 @@ audit_accents() {
     local item
     for item in "${audit_items[@]}"; do
         IFS='|' read -r label filepath method <<< "$item"
-        local detected=""
 
-        case "$method" in
-            hex)  detected=$(_detect_preset "$filepath") ;;
-            bare) detected=$(_detect_preset_bare "$filepath") ;;
-            ansi) detected=$(_detect_bash_prompt "$filepath") ;;
-        esac
+        local detected=""
+        detected=$(_detect_preset_in_file "$filepath" "$method")
 
         local status="OK"
         if [[ "$detected" == "missing" ]]; then
@@ -232,13 +238,23 @@ audit_accents() {
 }
 
 # ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
+
+_THEME_TMPDIR=""
+
+_theme_cleanup() {
+    [[ -n "$_THEME_TMPDIR" ]] && rm -rf "$_THEME_TMPDIR"
+}
+
+# ---------------------------------------------------------------------------
 # Tela icon theme
 # ---------------------------------------------------------------------------
 
 _install_tela_icon_theme() {
     require_cmd git "sudo dnf install -y git"
 
-    local tela_dir="$HOME/.local/share/icons/Tela-${ACCENT_NAME}"
+    local tela_dir="${_TELA_ICON_BASE}/Tela-${ACCENT_NAME}"
     local need_install=false
 
     if [[ ! -d "$tela_dir" ]]; then
@@ -258,11 +274,12 @@ _install_tela_icon_theme() {
 
     if [[ "$need_install" == true ]]; then
         info "Installing Tela ${ACCENT_NAME} icon theme (user-local)..."
-        local tela_tmp
-        tela_tmp=$(mktemp -d)
-        git clone --depth 1 https://github.com/vinceliuice/Tela-icon-theme.git "$tela_tmp"
-        bash "$tela_tmp/install.sh" -d "$HOME/.local/share/icons" "$ACCENT_NAME"
-        rm -rf "$tela_tmp"
+        local tela_tmp="${_THEME_TMPDIR}/tela-icon-theme"
+        if ! git clone --depth 1 https://github.com/vinceliuice/Tela-icon-theme.git "$tela_tmp" 2>&1; then
+            warn "Failed to clone Tela-icon-theme — skipping icon theme"
+            return 0
+        fi
+        bash "$tela_tmp/install.sh" -d "${_TELA_ICON_BASE}" "$ACCENT_NAME"
         ok "Tela ${ACCENT_NAME} icon theme installed"
     else
         ok "Tela ${ACCENT_NAME} icon theme already installed (skipped)"
@@ -270,115 +287,112 @@ _install_tela_icon_theme() {
 }
 
 # ---------------------------------------------------------------------------
-# SDDM theming (from theme-sddm.sh)
+# SDDM theming (split into focused helpers)
 # ---------------------------------------------------------------------------
 
+# _install_sddm_corners <theme_dir>
+# Git clones sddm-theme-corners, applies Qt6 patch, adds dark background.
+_install_sddm_corners() {
+    local sddm_theme_dir="$1"
+
+    pkg_install qt6-qt5compat qt6-qtsvg
+
+    if [[ -d "$sddm_theme_dir" ]]; then
+        ok "sddm-theme-corners already installed (skipped)"
+    else
+        local corners_tmp="${_THEME_TMPDIR}/corners"
+        if ! git clone --depth 1 https://github.com/aczw/sddm-theme-corners.git "$corners_tmp" 2>&1; then
+            warn "Failed to clone sddm-theme-corners — skipping"
+            return 0
+        fi
+        sudo cp -r "$corners_tmp/corners" "$sddm_theme_dir" \
+            || { warn "Failed to install sddm-theme-corners"; return 0; }
+        ok "sddm-theme-corners installed"
+    fi
+
+    sudo chmod -R a+rX "$sddm_theme_dir"
+
+    # Qt5 → Qt6 patch
+    if compgen -G "$sddm_theme_dir/components/*.qml" >/dev/null; then
+        sudo sed -i 's/import QtGraphicalEffects.*/import Qt5Compat.GraphicalEffects/' \
+            "$sddm_theme_dir"/components/*.qml
+    fi
+
+    # Dark background color
+    if [[ -f "$sddm_theme_dir/Main.qml" ]]; then
+        if ! sudo grep -q 'color: "#222222"' "$sddm_theme_dir/Main.qml"; then
+            sudo sed -i '/id: root/a\    color: "#222222"' "$sddm_theme_dir/Main.qml"
+        fi
+    fi
+
+    # Deploy theme.conf with accent colors
+    local theme_tmp="${_THEME_TMPDIR}/sddm-theme.conf"
+    cp "$REPO_ROOT/config/sddm/theme.conf" "$theme_tmp"
+    apply_accent "$theme_tmp"
+    sudo cp "$theme_tmp" "$sddm_theme_dir/theme.conf"
+    sudo chmod 644 "$sddm_theme_dir/theme.conf"
+}
+
+# _apply_sddm_stock <theme_dir>
+# Configures stock Fedora SDDM theme with dark grey background.
+_apply_sddm_stock() {
+    local sddm_theme_dir="$1"
+    local bg_src="$REPO_ROOT/config/sddm/background-dark-grey.png"
+
+    if [[ ! -d "$sddm_theme_dir" ]]; then
+        warn "Stock SDDM theme not found at $sddm_theme_dir — is sddm installed?"
+        return 0
+    fi
+
+    sudo cp "$bg_src" "$sddm_theme_dir/background-dark-grey.png" \
+        || { warn "Failed to copy SDDM background"; return 0; }
+    sudo chmod 644 "$sddm_theme_dir/background-dark-grey.png"
+
+    local user_conf_tmp="${_THEME_TMPDIR}/sddm-user.conf"
+    printf '[General]\nbackground=background-dark-grey.png\n' > "$user_conf_tmp"
+    if ! sudo cmp -s "$user_conf_tmp" "$sddm_theme_dir/theme.conf.user" 2>/dev/null; then
+        sudo cp "$user_conf_tmp" "$sddm_theme_dir/theme.conf.user"
+        sudo chmod 644 "$sddm_theme_dir/theme.conf.user"
+    fi
+    ok "Dark grey background applied to stock SDDM theme"
+}
+
+# _set_sddm_active_theme <theme_name>
+# Writes /etc/sddm.conf.d/theme.conf, disables greetd if active, enables sddm.
+_set_sddm_active_theme() {
+    local theme_name="$1"
+    local sddm_conf_tmp="${_THEME_TMPDIR}/sddm-active.conf"
+    printf '[Theme]\nCurrent=%s\n' "$theme_name" > "$sddm_conf_tmp"
+    sudo mkdir -p /etc/sddm.conf.d
+    if ! sudo cmp -s "$sddm_conf_tmp" /etc/sddm.conf.d/theme.conf 2>/dev/null; then
+        sudo cp "$sddm_conf_tmp" /etc/sddm.conf.d/theme.conf
+        sudo chmod 644 /etc/sddm.conf.d/theme.conf
+    fi
+
+    if systemctl is-enabled greetd &>/dev/null; then
+        sudo systemctl disable greetd
+    fi
+    sudo systemctl enable sddm
+    ok "SDDM configured (theme: $theme_name)"
+}
+
+# _apply_sddm — Orchestrator
+# Calls the appropriate variant based on --corners flag, then sets active theme.
 _apply_sddm() {
     if ! rpm -q sddm &>/dev/null; then
         info "SDDM not installed — skipping SDDM theming"
         return 0
     fi
 
-    local use_corners=false
-    local arg
-    for arg in "$@"; do
-        [[ "$arg" == "--corners" ]] && use_corners=true
-    done
-
     info "Configuring SDDM theme..."
-    local config_dir="$REPO_ROOT/config"
-    local sddm_theme_name=""
 
-    if [[ "$use_corners" == true ]]; then
-        # sddm-theme-corners
-        pkg_install qt6-qt5compat qt6-qtsvg
-
-        local sddm_theme_dir="/usr/share/sddm/themes/corners"
-        if [[ -d "$sddm_theme_dir" ]]; then
-            ok "sddm-theme-corners already installed (skipped)"
-        else
-            local corners_tmp
-            corners_tmp=$(mktemp -d)
-            git clone --depth 1 https://github.com/aczw/sddm-theme-corners.git "$corners_tmp"
-            sudo cp -r "$corners_tmp/corners" "$sddm_theme_dir"
-            rm -rf "$corners_tmp"
-            ok "sddm-theme-corners installed"
-        fi
-
-        sudo chmod -R a+rX "$sddm_theme_dir"
-
-        # Qt5 → Qt6 patch
-        if compgen -G "$sddm_theme_dir/components/*.qml" >/dev/null; then
-            sudo sed -i 's/import QtGraphicalEffects.*/import Qt5Compat.GraphicalEffects/' \
-                "$sddm_theme_dir"/components/*.qml
-        fi
-
-        # Dark background color
-        if [[ -f "$sddm_theme_dir/Main.qml" ]]; then
-            if ! sudo grep -q 'color: "#222222"' "$sddm_theme_dir/Main.qml"; then
-                sudo sed -i '/id: root/a\    color: "#222222"' "$sddm_theme_dir/Main.qml"
-            fi
-        fi
-
-        # Deploy theme.conf with accent colors
-        local theme_tmp
-        theme_tmp=$(mktemp)
-        cp "$config_dir/sddm/theme.conf" "$theme_tmp"
-        apply_accent "$theme_tmp"
-        sudo cp "$theme_tmp" "$sddm_theme_dir/theme.conf"
-        sudo chmod 644 "$sddm_theme_dir/theme.conf"
-        rm -f "$theme_tmp"
-
-        sddm_theme_name="corners"
+    if [[ "$_THEME_CORNERS" == true ]]; then
+        _install_sddm_corners "${_SDDM_THEME_BASE}/corners"
+        _set_sddm_active_theme "corners"
     else
-        # Stock Fedora + dark grey background
-        local sddm_theme_dir="/usr/share/sddm/themes/03-sway-fedora"
-        local bg_src="$config_dir/sddm/background-dark-grey.png"
-        local bg_dest="$sddm_theme_dir/background-dark-grey.png"
-
-        if [[ ! -d "$sddm_theme_dir" ]]; then
-            warn "Stock SDDM theme not found at $sddm_theme_dir — is sddm installed?"
-        else
-            sudo cp "$bg_src" "$bg_dest"
-            sudo chmod 644 "$bg_dest"
-            local user_conf_tmp
-            user_conf_tmp=$(mktemp)
-            cat <<'USERCONF' > "$user_conf_tmp"
-[General]
-background=background-dark-grey.png
-USERCONF
-            if ! sudo cmp -s "$user_conf_tmp" "$sddm_theme_dir/theme.conf.user" 2>/dev/null; then
-                sudo cp "$user_conf_tmp" "$sddm_theme_dir/theme.conf.user"
-                sudo chmod 644 "$sddm_theme_dir/theme.conf.user"
-            fi
-            rm -f "$user_conf_tmp"
-            ok "Dark grey background applied to stock SDDM theme"
-        fi
-
-        sddm_theme_name="03-sway-fedora"
+        _apply_sddm_stock "${_SDDM_THEME_BASE}/03-sway-fedora"
+        _set_sddm_active_theme "03-sway-fedora"
     fi
-
-    # Set active SDDM theme
-    local sddm_conf_tmp
-    sddm_conf_tmp=$(mktemp)
-    cat > "$sddm_conf_tmp" <<EOF
-[Theme]
-Current=$sddm_theme_name
-EOF
-    sudo mkdir -p /etc/sddm.conf.d
-    if ! sudo cmp -s "$sddm_conf_tmp" /etc/sddm.conf.d/theme.conf 2>/dev/null; then
-        sudo cp "$sddm_conf_tmp" /etc/sddm.conf.d/theme.conf
-        sudo chmod 644 /etc/sddm.conf.d/theme.conf
-    fi
-    rm -f "$sddm_conf_tmp"
-
-    # Disable greetd if previously enabled, enable sddm
-    if systemctl is-enabled greetd &>/dev/null; then
-        sudo systemctl disable greetd
-    fi
-    sudo systemctl enable sddm
-
-    ok "SDDM configured (theme: $sddm_theme_name)"
 }
 
 # ---------------------------------------------------------------------------
@@ -426,19 +440,14 @@ theme::check() {
     fi
     load_accent
 
-    local config_dir="$REPO_ROOT/config"
-
-    # Check a representative file
+    _detect_all_files
     local f
-    for f in "${_ACCENT_HEX_FILES[@]}"; do
-        local detected
-        detected=$(_detect_preset "$config_dir/$f")
-        [[ "$detected" != "$ACCENT_NAME" ]] && return 0
+    for f in "${!_DETECT_RESULTS[@]}"; do
+        [[ "${_DETECT_RESULTS[$f]}" != "$ACCENT_NAME" ]] && return 0
     done
 
     # Check icon theme
-    local tela_dir="$HOME/.local/share/icons/Tela-${ACCENT_NAME}"
-    [[ ! -d "$tela_dir" ]] && return 0
+    [[ ! -d "${_TELA_ICON_BASE}/Tela-${ACCENT_NAME}" ]] && return 0
 
     return 1
 }
@@ -467,28 +476,18 @@ theme::preview() {
     echo "  PRIMARY=$ACCENT_PRIMARY DIM=$ACCENT_DIM DARK=$ACCENT_DARK BRIGHT=$ACCENT_BRIGHT SECONDARY=$ACCENT_SECONDARY"
     echo ""
 
-    local config_dir="$REPO_ROOT/config"
+    _detect_all_files
     echo "  Config file status:"
     local f
-    for f in "${_ACCENT_HEX_FILES[@]}"; do
-        local detected
-        detected=$(_detect_preset "$config_dir/$f")
+    for f in "${!_DETECT_RESULTS[@]}"; do
+        local detected="${_DETECT_RESULTS[$f]}"
         local status="OK"
         [[ "$detected" != "$ACCENT_NAME" ]] && status="WILL UPDATE ($detected → $ACCENT_NAME)"
         printf "    %-40s %s\n" "config/$f" "$status"
     done
-    if command -v sway &>/dev/null; then
-        for f in "${_ACCENT_SWAY_FILES[@]}"; do
-            local detected
-            detected=$(_detect_preset "$config_dir/$f")
-            local status="OK"
-            [[ "$detected" != "$ACCENT_NAME" ]] && status="WILL UPDATE ($detected → $ACCENT_NAME)"
-            printf "    %-40s %s\n" "config/$f" "$status"
-        done
-    fi
 
     # Icon theme
-    local tela_dir="$HOME/.local/share/icons/Tela-${ACCENT_NAME}"
+    local tela_dir="${_TELA_ICON_BASE}/Tela-${ACCENT_NAME}"
     if [[ -d "$tela_dir" ]]; then
         echo "  Icon theme: Tela-${ACCENT_NAME}  [installed]"
     else
@@ -522,6 +521,16 @@ theme::apply() {
     fi
     load_accent
 
+    # Validate preset exists
+    if [[ -z "${COLOR_PRESETS[$ACCENT_NAME]+x}" ]]; then
+        warn "Unknown accent preset: $ACCENT_NAME (available: ${!COLOR_PRESETS[*]})"
+        return 1
+    fi
+
+    # Set up temp directory with cleanup trap
+    _THEME_TMPDIR=$(mktemp -d)
+    trap _theme_cleanup EXIT
+
     info "Accent: $ACCENT_NAME ($ACCENT_PRIMARY)"
 
     # 1. Tela icon theme
@@ -549,7 +558,7 @@ theme::apply() {
     fi
 
     # 4. SDDM (if installed)
-    _apply_sddm "$@"
+    _apply_sddm
 
     ok "Theme applied: $ACCENT_NAME"
 }
@@ -559,7 +568,7 @@ theme::status() {
     load_accent
 
     local tela="not installed"
-    [[ -d "$HOME/.local/share/icons/Tela-${ACCENT_NAME}" ]] && tela="installed"
+    [[ -d "${_TELA_ICON_BASE}/Tela-${ACCENT_NAME}" ]] && tela="installed"
 
     local sddm="not installed"
     if rpm -q sddm &>/dev/null; then

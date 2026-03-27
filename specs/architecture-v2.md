@@ -42,6 +42,8 @@ systems/
 │   ├── default.conf                  # Base settings (checked in)
 │   └── local.conf                    # Per-machine overrides (gitignored)
 │
+├── apps.conf                         # App registry — single source of truth for apps.sh
+│
 ├── colors/                           # Color preset definitions (one file per preset)
 │   ├── green.conf
 │   ├── orange.conf
@@ -84,6 +86,7 @@ systems/
 | `scripts/lib/common.sh` (everything) | Split → `lib/common.sh` + `lib/colors.sh` + `lib/links.sh` + `lib/config.sh` | Focused files. Colors become data-driven. |
 | `scripts/env-sample` + `scripts/env` | `profiles/default.conf` + `profiles/local.conf` | Structured config with sections. |
 | Color presets hardcoded in bash array | `colors/*.conf` files | Adding a preset = adding a file. No code changes needed. |
+| App lists hardcoded in bash arrays | `apps.conf` | Adding an app = adding a line. Category/flag filtering built in. |
 | (none) | `setup` | Single entry point replacing 6 separate script invocations. |
 | (none) | `tests/` | Container-based smoke tests with Podman. |
 
@@ -281,6 +284,8 @@ Merged from: `scripts/theme-accent-color.sh` + `scripts/theme-sddm.sh`.
 Flags: `--accent <name>` (override profile), `--list`, `--audit`, `--corners` (SDDM theme variant).
 Reads from profile: `accent`, `icon_theme`.
 
+See section 12 for the structural improvements to this module.
+
 #### `modules/apps.sh`
 Extracted from: current `scripts/apps.sh`.
 
@@ -293,6 +298,7 @@ Extracted from: current `scripts/apps.sh`.
 
 Flags: `--devops`.
 Reads from profile: `desktop_toolkit` (gtk/qt).
+Reads from: `apps.conf` (app registry — see section 11).
 
 #### `modules/audit.sh`
 Extracted from: current `scripts/audit.sh`.
@@ -622,19 +628,20 @@ Implementation is incremental, module by module. Each step produces a working sy
 ### Phase order
 
 ```
-1. lib/config.sh + profiles/         (new — foundation for everything)
-2. lib/colors.sh + colors/           (extract from lib/common.sh)
-3. lib/links.sh                      (extract from dotfiles.sh)
-4. lib/common.sh                     (trim to core utilities)
-5. modules/system.sh                 (extract from bootstrap.sh)
-6. modules/packages.sh               (extract from bootstrap.sh)
-7. modules/shell-env.sh              (extract from bootstrap.sh)
-8. modules/dotfiles.sh               (refactor from scripts/dotfiles.sh)
-9. modules/theme.sh                  (merge theme-accent-color.sh + theme-sddm.sh)
-10. modules/apps.sh                  (refactor from scripts/apps.sh)
-11. modules/audit.sh                 (refactor from scripts/audit.sh)
-12. setup                            (entry point, wires everything together)
-13. tests/                           (smoke tests)
+1.  lib/config.sh + profiles/         (new — foundation for everything)
+2.  lib/colors.sh + colors/           (extract from lib/common.sh)
+3.  lib/links.sh                      (extract from dotfiles.sh)
+4.  lib/common.sh                     (trim to core utilities)
+5.  modules/system.sh                 (extract from bootstrap.sh)
+6.  modules/packages.sh               (extract from bootstrap.sh)
+7.  modules/shell-env.sh              (extract from bootstrap.sh)
+8.  modules/dotfiles.sh               (refactor from scripts/dotfiles.sh)
+9.  modules/theme.sh                  (merge + structural improvements — see section 12)
+10. apps.conf                         (app registry — see section 11)
+11. modules/apps.sh                   (refactor to read from apps.conf)
+12. modules/audit.sh                  (refactor from scripts/audit.sh)
+13. setup                             (entry point, wires everything together)
+14. tests/                            (smoke tests)
 ```
 
 Old scripts remain functional until their replacement module is complete and tested.
@@ -656,3 +663,221 @@ These patterns are carried forward unchanged:
 - **`set -euo pipefail`** — all scripts
 - **Temp file cleanup** — `trap ... EXIT` pattern
 - **Config directory structure** — `config/` layout is unchanged
+
+---
+
+## 11. App Registry (`apps.conf`)
+
+### Problem
+
+App lists are hardcoded as bash arrays in `modules/apps.sh`. Adding or removing an app means editing shell code. There is no single source of truth that documents which apps are managed — the architecture doc and the code can drift.
+
+### Design
+
+A structured INI file at `apps.conf` serves as the single source of truth for all apps installed by `modules/apps.sh`. The file uses `lib/config.sh`'s existing INI parser.
+
+Each section defines a category. Section names encode the package type and an optional install flag:
+
+```
+[section]           → always-installed RPM packages
+[section:devops]    → RPM packages installed only with --devops flag
+[section:gtk]       → RPM packages installed only when desktop_toolkit = gtk
+[section:qt]        → RPM packages installed only when desktop_toolkit = qt
+[flatpak:section]   → always-installed Flatpak apps
+```
+
+### `apps.conf`
+
+```ini
+# apps.conf — App registry (single source of truth for modules/apps.sh)
+# Adding/removing an app = editing this file. No code changes needed.
+
+[browsers]
+brave-browser
+firefox
+
+[mesa]
+libva-utils
+mesa-vdpau-drivers-freeworld
+mesa-vulkan-drivers
+
+[misc]
+keepassxc
+nextcloud-client
+
+[kvm]
+libvirt
+libvirt-daemon-config-network
+qemu-kvm
+virt-install
+virt-manager
+virt-viewer
+
+[desktop:gtk]
+celluloid
+evince
+file-roller
+gnome-calculator
+loupe
+thunar
+
+[desktop:qt]
+ark
+dolphin
+gwenview
+haruna
+kcalc
+okular
+
+[devops]
+ansible
+helm
+kind
+kubectl
+podman-compose
+yq
+
+[flatpak:audio]
+com.github.wwmm.easyeffects
+
+[flatpak:comm]
+com.slack.Slack
+org.signal.Signal
+```
+
+### How `apps.sh` uses the registry
+
+1. At module load, `apps.sh` reads `apps.conf` using `lib/config.sh`.
+2. Categories are filtered based on active flags and profile:
+   - Sections with no qualifier → always included
+   - `:devops` → included only when `--devops` is passed
+   - `:gtk` / `:qt` → included only when `desktop_toolkit` matches
+   - `flatpak:*` → installed via `flatpak install` instead of `dnf install`
+3. The hardcoded `_*_PKGS` arrays are removed from `apps.sh`. All package names come from `apps.conf`.
+4. Special install logic (ProtonVPN repo probing, HashiCorp/Kubernetes repo setup, Brave repo) remains in `apps.sh` code — `apps.conf` only governs *what* gets installed, not *how*.
+
+### Adding an app
+
+1. Add the package name to the appropriate section in `apps.conf`
+2. Run `./setup apps --apply` (or `./setup apps --devops --apply`)
+
+No code changes needed unless the app requires special repo setup.
+
+### Validation
+
+`apps::check` and `apps::preview` validate that `apps.conf` exists and is non-empty. If the file is missing, the module fails with a clear error rather than silently installing nothing.
+
+---
+
+## 12. Theme Module Improvements (`modules/theme.sh`)
+
+### Problems identified
+
+| Issue | Impact |
+|-------|--------|
+| `_detect_preset()` and `_detect_preset_bare()` are 95% identical | Code duplication |
+| `_apply_sddm()` is 107 lines handling multiple concerns | Hard to read and test |
+| No error checking on file operations (`cp`, `sed`, `git clone`) | Silent failures |
+| No temp file cleanup on failure | Leftover state after interrupted runs |
+| Repeated detection loops in `check()` and `preview()` | Code duplication |
+| Hardcoded paths scattered throughout | Maintenance burden |
+
+### Structural changes
+
+#### 1. Merge detection functions
+
+Replace `_detect_preset()`, `_detect_preset_bare()`, and `_detect_bash_prompt()` with a single function:
+
+```bash
+_detect_preset_in_file() {
+    local file="$1"
+    local method="$2"    # "hex" | "bare" | "ansi"
+    # ... unified logic, method selects which color field to match
+}
+```
+
+#### 2. Split `_apply_sddm()`
+
+Break into focused helpers:
+
+```bash
+_install_sddm_corners()     # Git clone + Qt6 patch + dark bg
+_apply_sddm_stock()         # Stock Fedora theme + dark grey background
+_set_sddm_active_theme()    # Write /etc/sddm.conf.d/theme.conf + enable sddm
+_apply_sddm()               # Orchestrator: calls the above based on --corners flag
+```
+
+#### 3. Extract shared detection loop
+
+`theme::check()` and `theme::preview()` both iterate over `_ACCENT_HEX_FILES` with identical detection logic. Extract to:
+
+```bash
+_detect_all_files()          # Returns list of (file, detected_preset) pairs
+```
+
+Both `check` and `preview` call this. `check` short-circuits on first mismatch. `preview` formats the full table.
+
+#### 4. Constants for paths
+
+```bash
+_SDDM_THEME_BASE="/usr/share/sddm/themes"
+_TELA_ICON_BASE="$HOME/.local/share/icons"
+```
+
+### Error handling improvements
+
+#### 1. Temp file cleanup via trap
+
+```bash
+_theme_cleanup() {
+    [[ -n "${_THEME_TMPDIR:-}" ]] && rm -rf "$_THEME_TMPDIR"
+}
+
+theme::apply() {
+    _THEME_TMPDIR=$(mktemp -d)
+    trap _theme_cleanup EXIT
+    # ... all temp files created under $_THEME_TMPDIR
+}
+```
+
+#### 2. Git clone with error context
+
+```bash
+if ! git clone --depth 1 "$url" "$dest" 2>&1; then
+    warn "Failed to clone $url — skipping"
+    return 0    # Non-fatal: theme still works without optional component
+fi
+```
+
+#### 3. File operation guards
+
+Critical file operations (`cp` to system paths, `sed -i` on config files) get explicit checks:
+
+```bash
+cp "$src" "$dest" || { warn "Failed to copy $src → $dest"; return 0; }
+```
+
+Non-fatal operations (icon theme, SDDM) warn and continue. Fatal operations (accent color substitution on repo config files) propagate errors.
+
+#### 4. Validate preset before apply
+
+```bash
+theme::apply() {
+    load_all_presets
+    load_accent
+    if [[ -z "${COLOR_PRESETS[$ACCENT_NAME]+x}" ]]; then
+        warn "Unknown preset: $ACCENT_NAME"
+        return 1
+    fi
+    # ...
+}
+```
+
+### Logging improvements
+
+Use `info()` / `warn()` / `ok()` from `lib/common.sh` consistently:
+- `info` before each major step (icon theme, accent files, SDDM)
+- `ok` after each successful step
+- `warn` for non-fatal failures (SDDM not installed, git clone failed)
+
+Currently some paths (e.g., SDDM not installed) skip silently. All skipped steps should log why.
