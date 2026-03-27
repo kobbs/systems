@@ -489,6 +489,20 @@ theme::check() {
     # Check icon theme
     [[ ! -d "${_TELA_ICON_BASE}/Tela-${ACCENT_NAME}" ]] && return 0
 
+    # Check SDDM state (if installed)
+    if rpm -q sddm &>/dev/null; then
+        local expected_theme="03-sway-fedora"
+        [[ "$_THEME_CORNERS" == true ]] && expected_theme="corners"
+
+        # Theme directory must exist
+        [[ ! -d "${_SDDM_THEME_BASE}/${expected_theme}" ]] && return 0
+
+        # Active theme must match
+        local current_theme
+        current_theme=$(grep -oP 'Current=\K.*' /etc/sddm.conf.d/theme.conf 2>/dev/null || echo "")
+        [[ "$current_theme" != "$expected_theme" ]] && return 0
+    fi
+
     return 1
 }
 
@@ -536,7 +550,15 @@ theme::preview() {
 
     # SDDM
     if rpm -q sddm &>/dev/null; then
-        echo "  SDDM: will configure"
+        local expected_theme="03-sway-fedora"
+        [[ "$_THEME_CORNERS" == true ]] && expected_theme="corners"
+        local current_theme
+        current_theme=$(grep -oP 'Current=\K.*' /etc/sddm.conf.d/theme.conf 2>/dev/null || echo "none")
+        if [[ "$current_theme" == "$expected_theme" ]]; then
+            echo "  SDDM: $expected_theme  [OK]"
+        else
+            echo "  SDDM: $current_theme → $expected_theme  [WILL UPDATE]"
+        fi
     else
         echo "  SDDM: not installed (skip)"
     fi
