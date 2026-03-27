@@ -31,7 +31,15 @@ _ACCENT_HEX_FILES=(
 _ACCENT_SWAY_FILES=(
     "sway/config"
     "waybar/style.css"
+)
+
+_ACCENT_BARE_FILES=(
     "swaylock/config"
+)
+
+_ACCENT_TELA_FILES=(
+    "gtk/settings.ini"
+    "kde/kdeglobals"
 )
 
 _ACCENT_BASH_PROMPT="bash/prompt.sh"
@@ -70,25 +78,49 @@ _detect_preset_in_file() {
         return
     fi
 
-    # hex/bare: scan for primary color of each preset
-    local found="" count=0
+    # tela: match Tela-{preset} icon theme name
+    if [[ "$method" == "tela" ]]; then
+        local found="" count=0
+        local preset
+        for preset in "${!COLOR_PRESETS[@]}"; do
+            if grep -q "Tela-${preset}" "$file" 2>/dev/null; then
+                found="${found:+${found}+}${preset}"
+                count=$(( count + 1 ))
+            fi
+        done
+        if [[ "$count" -eq 0 ]]; then echo "unknown"
+        elif [[ "$count" -eq 1 ]]; then echo "$found"
+        else echo "mixed($found)"
+        fi
+        return
+    fi
+
+    # hex/bare: score each preset by how many of its color roles match
+    # PRIMARY match gets 2 points (stronger signal), other roles get 1 point
+    local best="" best_score=0
     local preset
     for preset in "${!COLOR_PRESETS[@]}"; do
-        read -r p _rest <<< "${COLOR_PRESETS[$preset]}"
+        read -r p d dk br s _ansi <<< "${COLOR_PRESETS[$preset]}"
+        local score=0
         local needle="$p"
         [[ "$method" == "bare" ]] && needle="${p#\#}"
-        if grep -qi "${needle}" "$file" 2>/dev/null; then
-            found="${found:+${found}+}${preset}"
-            count=$(( count + 1 ))
+        grep -qi "${needle}" "$file" 2>/dev/null && score=$(( score + 2 ))
+        local src
+        for src in "$d" "$dk" "$br" "$s"; do
+            needle="$src"
+            [[ "$method" == "bare" ]] && needle="${src#\#}"
+            grep -qi "${needle}" "$file" 2>/dev/null && score=$(( score + 1 ))
+        done
+        if [[ "$score" -gt "$best_score" ]]; then
+            best_score=$score
+            best=$preset
         fi
     done
 
-    if [[ "$count" -eq 0 ]]; then
+    if [[ "$best_score" -eq 0 ]]; then
         echo "unknown"
-    elif [[ "$count" -eq 1 ]]; then
-        echo "$found"
     else
-        echo "mixed($found)"
+        echo "$best"
     fi
 }
 
@@ -111,7 +143,15 @@ _detect_all_files() {
         for f in "${_ACCENT_SWAY_FILES[@]}"; do
             _DETECT_RESULTS["$f"]=$(_detect_preset_in_file "$config_dir/$f" hex)
         done
+        for f in "${_ACCENT_BARE_FILES[@]}"; do
+            _DETECT_RESULTS["$f"]=$(_detect_preset_in_file "$config_dir/$f" bare)
+        done
     fi
+
+    # Tela icon theme files (detect by Tela-{preset} name)
+    for f in "${_ACCENT_TELA_FILES[@]}"; do
+        _DETECT_RESULTS["$f"]=$(_detect_preset_in_file "$config_dir/$f" tela)
+    done
 
     # Bash prompt
     _DETECT_RESULTS["$_ACCENT_BASH_PROMPT"]=$(
@@ -436,7 +476,7 @@ theme::check() {
 
     load_all_presets
     if [[ -n "$_THEME_ACCENT_OVERRIDE" ]]; then
-        ACCENT="${_THEME_ACCENT_OVERRIDE}"
+        PROFILE_THEME_ACCENT="${_THEME_ACCENT_OVERRIDE}"
     fi
     load_accent
 
@@ -467,7 +507,7 @@ theme::preview() {
 
     load_all_presets
     if [[ -n "$_THEME_ACCENT_OVERRIDE" ]]; then
-        ACCENT="${_THEME_ACCENT_OVERRIDE}"
+        PROFILE_THEME_ACCENT="${_THEME_ACCENT_OVERRIDE}"
     fi
     load_accent
 
@@ -517,7 +557,7 @@ theme::apply() {
 
     load_all_presets
     if [[ -n "$_THEME_ACCENT_OVERRIDE" ]]; then
-        ACCENT="${_THEME_ACCENT_OVERRIDE}"
+        PROFILE_THEME_ACCENT="${_THEME_ACCENT_OVERRIDE}"
     fi
     load_accent
 
@@ -545,6 +585,9 @@ theme::apply() {
     done
     if command -v sway &>/dev/null; then
         for f in "${_ACCENT_SWAY_FILES[@]}"; do
+            apply_accent "$config_dir/$f"
+        done
+        for f in "${_ACCENT_BARE_FILES[@]}"; do
             apply_accent "$config_dir/$f"
         done
     fi

@@ -9,7 +9,7 @@ set -g __accent_primary   "#88DD00"
 set -g __accent_dim       "#557700"
 set -g __accent_dark      "#2A3B00"
 set -g __accent_bright    "#8BE235"
-set -g __accent_secondary "#88DD00"
+set -g __accent_secondary "#ffaa00"
 
 # -- Fish syntax highlighting ----------------------------------------------
 # Derive bare hex values from accent vars (fish_color_* needs hex without #)
