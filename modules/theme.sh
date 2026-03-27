@@ -501,6 +501,14 @@ theme::check() {
         local current_theme
         current_theme=$(grep -oP 'Current=\K.*' /etc/sddm.conf.d/theme.conf 2>/dev/null || echo "")
         [[ "$current_theme" != "$expected_theme" ]] && return 0
+
+        # Deployed theme.conf must have correct accent colors
+        local deployed_conf="${_SDDM_THEME_BASE}/${expected_theme}/theme.conf"
+        if [[ -f "$deployed_conf" ]]; then
+            local sddm_accent
+            sddm_accent=$(_detect_preset_in_file "$deployed_conf" hex)
+            [[ "$sddm_accent" != "$ACCENT_NAME" ]] && return 0
+        fi
     fi
 
     return 1
@@ -554,10 +562,22 @@ theme::preview() {
         [[ "$_THEME_CORNERS" == true ]] && expected_theme="corners"
         local current_theme
         current_theme=$(grep -oP 'Current=\K.*' /etc/sddm.conf.d/theme.conf 2>/dev/null || echo "none")
-        if [[ "$current_theme" == "$expected_theme" ]]; then
-            echo "  SDDM: $expected_theme  [OK]"
-        else
+        if [[ "$current_theme" != "$expected_theme" ]]; then
             echo "  SDDM: $current_theme → $expected_theme  [WILL UPDATE]"
+        else
+            # Check deployed accent colors
+            local deployed_conf="${_SDDM_THEME_BASE}/${expected_theme}/theme.conf"
+            if [[ -f "$deployed_conf" ]]; then
+                local sddm_accent
+                sddm_accent=$(_detect_preset_in_file "$deployed_conf" hex)
+                if [[ "$sddm_accent" != "$ACCENT_NAME" ]]; then
+                    echo "  SDDM: $expected_theme accent $sddm_accent → $ACCENT_NAME  [WILL UPDATE]"
+                else
+                    echo "  SDDM: $expected_theme  [OK]"
+                fi
+            else
+                echo "  SDDM: $expected_theme  [OK]"
+            fi
         fi
     else
         echo "  SDDM: not installed (skip)"
