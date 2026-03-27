@@ -1,19 +1,17 @@
 # Architecture v2
 
-Redesign of the Fedora + Sway/Wayland bootstrap and dotfiles system.
-Based on the analysis in `specs/architecture.md` and the user's decisions on open questions.
+Architecture of the Fedora + Sway/Wayland bootstrap and dotfiles system.
 
 ---
 
-## Design Decisions (from v1 open questions)
+## Design Decisions
 
-| # | Question | Decision |
-|---|----------|----------|
-| 1 | Profile granularity | `default` + per-machine is sufficient. No role-based profiles. |
-| 2 | Dry-run default | `--apply` is always required. Dry-run is the default and will be verbose. |
-| 3 | Accent extensibility | Adding a preset should be as simple as adding a line to a config file. |
-| 4 | Testing | Container-based smoke tests using Podman. |
-| 5 | Scope | Incremental, module by module. Detailed plan in a separate `plan.md`. |
+| # | Decision |
+|---|----------|
+| 1 | `default` + per-machine profiles. No role-based profiles. |
+| 2 | `--apply` is always required. Dry-run is the default and will be verbose. |
+| 3 | Adding a preset should be as simple as adding a file to `colors/`. |
+| 4 | Container-based smoke tests using Podman. |
 
 ---
 
@@ -73,22 +71,6 @@ systems/
 ├── documentation/                    # Reference cheatsheets
 └── CLAUDE.md
 ```
-
-### What changed from v1
-
-| v1 (current) | v2 (proposed) | Rationale |
-|--------------|---------------|-----------|
-| `scripts/bootstrap.sh` (monolith) | Split → `modules/packages.sh` + `modules/system.sh` + `modules/shell-env.sh` | Single-responsibility. Each module can be run and tested independently. |
-| `scripts/dotfiles.sh` | `modules/dotfiles.sh` | Gains diff/status capability. |
-| `scripts/theme-accent-color.sh` + `scripts/theme-sddm.sh` | `modules/theme.sh` | Merge related theming concerns into one module. |
-| `scripts/apps.sh` | `modules/apps.sh` | Reads `desktop_toolkit` from profile instead of CLI flag. |
-| `scripts/audit.sh` | `modules/audit.sh` | Unchanged logic, new location. |
-| `scripts/lib/common.sh` (everything) | Split → `lib/common.sh` + `lib/colors.sh` + `lib/links.sh` + `lib/config.sh` | Focused files. Colors become data-driven. |
-| `scripts/env-sample` + `scripts/env` | `profiles/default.conf` + `profiles/local.conf` | Structured config with sections. |
-| Color presets hardcoded in bash array | `colors/*.conf` files | Adding a preset = adding a file. No code changes needed. |
-| App lists hardcoded in bash arrays | `apps.conf` | Adding an app = adding a line. Category/flag filtering built in. |
-| (none) | `setup` | Single entry point replacing 6 separate script invocations. |
-| (none) | `tests/` | Container-based smoke tests with Podman. |
 
 ---
 
@@ -226,7 +208,6 @@ module_name::status()     # Report current state (for ./setup status)
 ### Module Definitions
 
 #### `modules/system.sh`
-Extracted from: `bootstrap.sh` sections for hostname, keyboard, GPU groups, firewall, services.
 
 | Function | Behavior |
 |----------|----------|
@@ -239,7 +220,6 @@ Reads from profile: `hostname`, `keyboard_layout`.
 Detects: discrete AMD GPU (lspci), Sway Spin mode (persisted to `~/.config/shell/.bootstrap-mode`).
 
 #### `modules/packages.sh`
-Extracted from: `bootstrap.sh` sections for dnf update, RPM Fusion, Flathub, Sway/Wayland packages, CLI tools, Yubikey, ROCm.
 
 | Function | Behavior |
 |----------|----------|
@@ -252,7 +232,6 @@ Flags: `--rocm`, `--sway-spin`, `--kde-spin`.
 Reads from profile: (none — package lists are in the module code).
 
 #### `modules/shell-env.sh`
-Extracted from: `bootstrap.sh` section 8 (shell environment).
 
 | Function | Behavior |
 |----------|----------|
@@ -262,7 +241,6 @@ Extracted from: `bootstrap.sh` section 8 (shell environment).
 | `shell-env::status` | Show deployed env vars |
 
 #### `modules/dotfiles.sh`
-Extracted from: current `scripts/dotfiles.sh`.
 
 | Function | Behavior |
 |----------|----------|
@@ -272,7 +250,6 @@ Extracted from: current `scripts/dotfiles.sh`.
 | `dotfiles::status` | Summary of deployed symlinks and their states |
 
 #### `modules/theme.sh`
-Merged from: `scripts/theme-accent-color.sh` + `scripts/theme-sddm.sh`.
 
 | Function | Behavior |
 |----------|----------|
@@ -284,10 +261,9 @@ Merged from: `scripts/theme-accent-color.sh` + `scripts/theme-sddm.sh`.
 Flags: `--accent <name>` (override profile), `--list`, `--audit`, `--corners` (SDDM theme variant).
 Reads from profile: `accent`, `icon_theme`.
 
-See section 12 for the structural improvements to this module.
+See section 10 for the structural improvements to this module.
 
 #### `modules/apps.sh`
-Extracted from: current `scripts/apps.sh`.
 
 | Function | Behavior |
 |----------|----------|
@@ -298,10 +274,9 @@ Extracted from: current `scripts/apps.sh`.
 
 Flags: `--devops`.
 Reads from profile: `desktop_toolkit` (gtk/qt).
-Reads from: `apps.conf` (app registry — see section 11).
+Reads from: `apps.conf` (app registry — see section 9).
 
 #### `modules/audit.sh`
-Extracted from: current `scripts/audit.sh`.
 
 | Function | Behavior |
 |----------|----------|
@@ -344,6 +319,10 @@ hostname = workstation
 
 [theme]
 accent = orange
+
+[apps]
+extra_packages = htop tlp powertop
+extra_flatpaks = org.gimp.GIMP
 ```
 
 ### Resolution Order
@@ -372,6 +351,8 @@ PROFILE_THEME_ICON_THEME        # "Tela"
 PROFILE_THEME_CURSOR_THEME      # "Adwaita"
 PROFILE_SHELL_DEFAULT_SHELL     # "bash"
 PROFILE_APPS_DESKTOP_TOOLKIT    # "qt"
+PROFILE_APPS_EXTRA_PACKAGES     # "htop tlp powertop" (space-separated)
+PROFILE_APPS_EXTRA_FLATPAKS     # "org.gimp.GIMP" (space-separated)
 ```
 
 ---
@@ -457,8 +438,6 @@ Unchanged from v1. The list of files that receive accent color substitution:
 
 ### `lib/common.sh` — Core utilities
 
-Retained from current `scripts/lib/common.sh`, minus colors and links:
-
 ```bash
 # Logging
 info()                    # Blue prefix
@@ -481,8 +460,6 @@ find_fedora_version()     # Probe URL template for compatible Fedora version
 
 ### `lib/colors.sh` — Color system
 
-Extracted from `scripts/lib/common.sh`:
-
 ```bash
 load_all_presets()        # Read colors/*.conf → COLOR_PRESETS
 load_accent()             # Resolve target accent from profile
@@ -490,8 +467,6 @@ apply_accent()            # Two-pass placeholder substitution
 ```
 
 ### `lib/links.sh` — Symlink management
-
-Extracted from `scripts/dotfiles.sh`:
 
 ```bash
 link_file()               # Idempotent symlink with backup
@@ -621,52 +596,7 @@ These are validated by running on real hardware.
 
 ---
 
-## 9. Migration Path
-
-Implementation is incremental, module by module. Each step produces a working system — no big-bang migration.
-
-### Phase order
-
-```
-1.  lib/config.sh + profiles/         (new — foundation for everything)
-2.  lib/colors.sh + colors/           (extract from lib/common.sh)
-3.  lib/links.sh                      (extract from dotfiles.sh)
-4.  lib/common.sh                     (trim to core utilities)
-5.  modules/system.sh                 (extract from bootstrap.sh)
-6.  modules/packages.sh               (extract from bootstrap.sh)
-7.  modules/shell-env.sh              (extract from bootstrap.sh)
-8.  modules/dotfiles.sh               (refactor from scripts/dotfiles.sh)
-9.  modules/theme.sh                  (merge + structural improvements — see section 12)
-10. apps.conf                         (app registry — see section 11)
-11. modules/apps.sh                   (refactor to read from apps.conf)
-12. modules/audit.sh                  (refactor from scripts/audit.sh)
-13. setup                             (entry point, wires everything together)
-14. tests/                            (smoke tests)
-```
-
-Old scripts remain functional until their replacement module is complete and tested.
-
-Detailed implementation plan will be in `specs/plan.md`.
-
----
-
-## 10. Preserved Patterns
-
-These patterns are carried forward unchanged:
-
-- **Symlink-based deployment** — `link_file` with readlink check, timestamped backups
-- **Idempotency** — grep guards on file appends, cmp on env files, dnf's built-in idempotency
-- **Sway Spin mode detection** — persisted to `~/.config/shell/.bootstrap-mode`
-- **Two-pass accent substitution** — placeholder strategy for overlapping colors
-- **Per-machine .local overrides** — created once, never overwritten
-- **Package manifests** — `.pkg-manifest` and `.flatpak-manifest` for audit
-- **`set -euo pipefail`** — all scripts
-- **Temp file cleanup** — `trap ... EXIT` pattern
-- **Config directory structure** — `config/` layout is unchanged
-
----
-
-## 11. App Registry (`apps.conf`)
+## 9. App Registry (`apps.conf`)
 
 ### Problem
 
@@ -745,21 +675,42 @@ com.slack.Slack
 org.signal.Signal
 ```
 
+### Per-machine extra packages (`profiles/local.conf`)
+
+`apps.conf` defines the shared base — packages every machine gets. Per-machine additions go in `profiles/local.conf` under the `[apps]` section:
+
+```ini
+[apps]
+desktop_toolkit = qt
+extra_packages = htop tlp powertop
+extra_flatpaks = org.gimp.GIMP com.obsproject.Studio
+```
+
+| Key | Format | Description |
+|-----|--------|-------------|
+| `extra_packages` | Space-separated RPM names | Added to the RPM install list alongside `apps.conf` entries |
+| `extra_flatpaks` | Space-separated Flatpak app IDs | Added to the Flatpak install list alongside `apps.conf` entries |
+
+Both keys are optional. Packages listed here are installed unconditionally (no qualifier filtering).
+
+The `local.conf.sample` template should include commented examples for discoverability.
+
 ### How `apps.sh` uses the registry
 
-1. At module load, `apps.sh` reads `apps.conf` using `lib/config.sh`.
+1. At module load, `apps.sh` reads `apps.conf` using its own section parser.
 2. Categories are filtered based on active flags and profile:
    - Sections with no qualifier → always included
    - `:devops` → included only when `--devops` is passed
    - `:gtk` / `:qt` → included only when `desktop_toolkit` matches
    - `flatpak:*` → installed via `flatpak install` instead of `dnf install`
-3. The hardcoded `_*_PKGS` arrays are removed from `apps.sh`. All package names come from `apps.conf`.
+3. Per-machine extras from `profiles/local.conf` (`extra_packages`, `extra_flatpaks`) are appended to the respective install lists.
 4. Special install logic (ProtonVPN repo probing, HashiCorp/Kubernetes repo setup, Brave repo) remains in `apps.sh` code — `apps.conf` only governs *what* gets installed, not *how*.
 
 ### Adding an app
 
-1. Add the package name to the appropriate section in `apps.conf`
-2. Run `./setup apps --apply` (or `./setup apps --devops --apply`)
+**For all machines:** add the package name to the appropriate section in `apps.conf`, then run `./setup apps --apply`.
+
+**For this machine only:** add the package name to `extra_packages` or `extra_flatpaks` in `profiles/local.conf`, then run `./setup apps --apply`.
 
 No code changes needed unless the app requires special repo setup.
 
@@ -769,7 +720,7 @@ No code changes needed unless the app requires special repo setup.
 
 ---
 
-## 12. Theme Module Improvements (`modules/theme.sh`)
+## 10. Theme Module Improvements (`modules/theme.sh`)
 
 ### Problems identified
 

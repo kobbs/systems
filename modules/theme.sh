@@ -1,8 +1,6 @@
 # modules/theme.sh — Theme module (accent colors + icon theme + SDDM).
 # Source this file; do not execute it directly.
 #
-# Merges: scripts/theme-accent-color.sh + scripts/theme-sddm.sh
-#
 # Assumes all libs sourced, REPO_ROOT set.
 # apply_accent(), load_accent(), load_all_presets(), pkg_install(),
 # require_cmd() are available.
