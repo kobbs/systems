@@ -1,8 +1,8 @@
 # Copy this file to local.conf and uncomment the lines you want to override.
 # local.conf is gitignored.
 
-# [system]
+[system]
 # hostname = workstation
 
-# [theme]
+[theme]
 # accent = orange

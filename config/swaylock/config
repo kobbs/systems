@@ -1,12 +1,12 @@
 daemonize
 color=222222
 inside-color=1e1e1e
-ring-color=88DD00
-key-hl-color=88DD00
+ring-color=ff8800
+key-hl-color=ff8800
 line-color=00000000
 separator-color=00000000
 inside-ver-color=1e1e1e
-ring-ver-color=557700
+ring-ver-color=995200
 inside-wrong-color=1e1e1e
 ring-wrong-color=A40000
 inside-clear-color=1e1e1e

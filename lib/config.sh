@@ -67,8 +67,16 @@ load_profile() {
     _parse_ini "${profiles_dir}/default.conf"
     _parse_ini "${profiles_dir}/local.conf"
 
+    # Warn about sectionless keys (common mistake: commenting out [section] headers)
+    local compound_key
+    for compound_key in "${!_CONFIG[@]}"; do
+        if [[ "$compound_key" == .* ]]; then
+            echo "Warning: profiles: key '${compound_key#.}' has no [section] header — it will be ignored (check local.conf)" >&2
+        fi
+    done
+
     # Export as PROFILE_SECTION_KEY environment variables
-    local compound_key section key var_name
+    local section key var_name
     for compound_key in "${!_CONFIG[@]}"; do
         section="${compound_key%%.*}"
         key="${compound_key#*.}"
