@@ -1,0 +1,2 @@
+# Exclude per-machine profile so tests run against pure defaults
+profiles/local.conf

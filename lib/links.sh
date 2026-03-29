@@ -1,4 +1,5 @@
-# lib/links.sh — Symlink management library
+# shellcheck shell=bash
+# lib/links.sh -- Symlink management library
 # Sourced by other scripts, not executed directly.
 # Requires: lib/common.sh sourced first (provides ok() and warn())
 
@@ -23,7 +24,8 @@ link_file() {
     if [[ -L "$dst" ]]; then
         rm "$dst"
     elif [[ -e "$dst" ]]; then
-        local bak="$dst.bak.$(date +%Y%m%d%H%M%S)"
+        local bak
+        bak="$dst.bak.$(date +%Y%m%d%H%M%S)"
         warn "Backing up existing file: $dst → $bak"
         mv "$dst" "$bak"
     fi

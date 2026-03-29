@@ -1,0 +1,60 @@
+# local.conf — Per-machine profile overrides (gitignored).
+# Copy this file to local.conf and uncomment the lines you want to change.
+# Only override what differs from default.conf — missing keys inherit defaults.
+#
+# Validation runs on startup: typos in key names are caught immediately.
+
+# --- System -----------------------------------------------------------
+# Machine identity and base services.
+
+[system]
+# hostname = workstation
+# keyboard_layout = us
+# sway_spin = auto                  # true | false | auto (detect from rpm)
+# firewalld = true
+# bluetooth = true
+# tuned = true
+
+# --- Packages ---------------------------------------------------------
+# System-level package groups. Set to false to skip entirely.
+
+[packages]
+# dnf_update = true                 # Run dnf update before installing
+# rpm_fusion = true                 # Enable RPM Fusion free + nonfree repos
+# codec_swaps = true                # Cisco OpenH264 + ffmpeg/mesa freeworld swaps
+# flatpak = true                    # Add Flathub remote, install flatpak apps
+# cli_tools = true                  # bat, fd-find, fzf, ripgrep, tmux, etc.
+# security = true                   # pam-u2f, yubikey-manager
+# rocm = false                      # ROCm runtime (needs discrete AMD GPU)
+
+# --- Theme ------------------------------------------------------------
+# Visual appearance. accent must match a file in colors/*.conf.
+
+[theme]
+# accent = green                    # See: ./setup theme --list
+# gtk_theme = Adwaita-dark
+# icon_theme = Tela
+# cursor_theme = Adwaita
+# tela_icons = true                 # Install Tela icon theme via git
+# sddm_theme = stock                # stock | corners | none
+
+# --- Shell environment ------------------------------------------------
+# Env vars and aliases written to bootstrap-env.sh.
+
+[shell]
+# default_shell = bash
+# docker_alias = true               # alias docker=podman + KIND provider
+# qt_env = true                     # QT_QPA_PLATFORMTHEME + QT_STYLE_OVERRIDE
+# unset_ssh_askpass = true           # Unset SSH_ASKPASS (fixes git HTTPS prompts)
+
+# --- Applications -----------------------------------------------------
+# User-facing apps from apps.conf. Packs select which tagged sections to install.
+# Available packs: base (always on), devops.
+# Toolkit qualifiers (:gtk/:qt) are driven by desktop_toolkit, not packs.
+
+[apps]
+# desktop_toolkit = qt              # gtk | qt (selects :gtk/:qt sections in apps.conf)
+# packs = base                      # Space-separated: base devops
+# firefox_wayland = true             # MOZ_ENABLE_WAYLAND=1 in /etc/environment
+# kvm = false                       # KVM/libvirt stack + libvirt group membership
+# protonvpn = false                 # ProtonVPN (special repo-probing install)

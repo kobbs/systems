@@ -1,4 +1,5 @@
-# modules/shell-env.sh — Shell environment module.
+# shellcheck shell=bash
+# modules/shell-env.sh -- Shell environment module.
 # Source this file; do not execute it directly.
 #
 # Handles: ~/.config/shell/bootstrap-env.sh generation and .bashrc sourcing.
@@ -9,26 +10,46 @@
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_generate_env_content() {
-    cat <<'EOF'
+_shellenv_generate_env_content() {
+    cat <<'HEADER'
 # Managed by ./setup shell-env
 # Do not edit manually; changes will be overwritten.
+HEADER
+
+    if [[ "${PROFILE_SHELL_DOCKER_ALIAS:-true}" == "true" ]]; then
+        cat <<'BLOCK'
 
 alias docker=podman
 export KIND_EXPERIMENTAL_PROVIDER=podman
+BLOCK
+    fi
+
+    if [[ "${PROFILE_SHELL_QT_ENV:-true}" == "true" ]]; then
+        cat <<'BLOCK'
+
 export QT_QPA_PLATFORMTHEME=kde
 export QT_STYLE_OVERRIDE=Breeze
+BLOCK
+    fi
+
+    if [[ "${PROFILE_SHELL_UNSET_SSH_ASKPASS:-true}" == "true" ]]; then
+        cat <<'BLOCK'
 
 # kde-settings ships /etc/profile.d/kde-openssh-askpass.sh which sets
 # SSH_ASKPASS=/usr/bin/ksshaskpass, but ksshaskpass is not installed.
 # This breaks git HTTPS credential prompts. Unset unconditionally.
 unset SSH_ASKPASS
-EOF
+BLOCK
+    fi
 }
 
 # ---------------------------------------------------------------------------
 # Module contract
 # ---------------------------------------------------------------------------
+
+shell-env::init() {
+    : # Profile keys read directly in _shellenv_generate_env_content
+}
 
 shell-env::check() {
     local env_file="$HOME/.config/shell/bootstrap-env.sh"
@@ -36,7 +57,7 @@ shell-env::check() {
     # Check if env file content matches
     if [[ -f "$env_file" ]]; then
         local target
-        target="$(_generate_env_content)"
+        target="$(_shellenv_generate_env_content)"
         local current
         current="$(cat "$env_file")"
         if [[ "$target" != "$current" ]]; then
@@ -61,7 +82,7 @@ shell-env::preview() {
     if [[ -f "$env_file" ]]; then
         local tmp
         tmp=$(mktemp)
-        _generate_env_content > "$tmp"
+        _shellenv_generate_env_content > "$tmp"
         if ! cmp -s "$tmp" "$env_file"; then
             echo "  Changes to bootstrap-env.sh:"
             diff "$env_file" "$tmp" | sed 's/^/    /' || true
@@ -71,7 +92,7 @@ shell-env::preview() {
         rm -f "$tmp"
     else
         echo "  Will create: ~/.config/shell/bootstrap-env.sh"
-        _generate_env_content | sed 's/^/    /'
+        _shellenv_generate_env_content | sed 's/^/    /'
     fi
 
     if ! grep -qF "bootstrap-env.sh" "$HOME/.bashrc" 2>/dev/null; then
@@ -87,7 +108,7 @@ shell-env::apply() {
     # Write env file atomically via temp file
     local tmp
     tmp=$(mktemp)
-    _generate_env_content > "$tmp"
+    _shellenv_generate_env_content > "$tmp"
 
     mkdir -p "$HOME/.config/shell"
 

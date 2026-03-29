@@ -25,9 +25,34 @@ run_test() {
     fi
 }
 
-# Profile loading
+# Profile loading (default.conf hostname is empty, no local.conf in container)
 run_test "profile-load" \
-    'source lib/config.sh && load_profile profiles && [[ "$(profile_get system hostname)" == "fedora" ]]'
+    'source lib/config.sh && load_profile profiles && [[ -z "$(profile_get system hostname)" ]]'
+
+# Profile validation — valid profile accepted
+run_test "validate-profile-ok" '
+    source lib/config.sh
+    load_profile profiles
+    validate_profile
+'
+
+# Profile validation — unknown key rejected
+run_test "validate-profile-unknown-key" '
+    source lib/config.sh
+    load_profile profiles
+    _CONFIG["system.typo_key"]="oops"
+    output=$(validate_profile 2>&1) && exit 1
+    echo "$output" | grep -q "Unknown profile key"
+'
+
+# Profile validation — bad boolean rejected
+run_test "validate-profile-bad-boolean" '
+    source lib/config.sh
+    load_profile profiles
+    _CONFIG["system.firewalld"]="yes"
+    output=$(validate_profile 2>&1) && exit 1
+    echo "$output" | grep -q "must be"
+'
 
 # Color presets
 run_test "color-presets" '
@@ -75,6 +100,18 @@ run_test "theme-list" '
 # Theme --audit
 run_test "theme-audit" '
     ./setup theme --audit 2>&1 | grep -q "Accent Color Audit"
+'
+
+# Packs mechanism
+run_test "packs-devops" '
+    source lib/common.sh
+    source lib/config.sh
+    load_profile profiles
+    export PROFILE_APPS_PACKS="base devops"
+    export REPO_ROOT=/systems
+    source modules/apps.sh
+    apps::init
+    _apps_get_all_rpm_targets | grep -q kubectl
 '
 
 # Shellcheck

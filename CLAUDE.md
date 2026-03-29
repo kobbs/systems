@@ -51,16 +51,17 @@ tests/                    Container-based smoke tests (Podman)
 
 ## Module contract
 
-Every module exports four functions:
+Every module exports five functions:
 
 ```bash
+module::init()      # Read PROFILE_* vars, parse flags, set module-local state (called once)
 module::check()     # Return 0 if changes needed, 1 if up-to-date
 module::preview()   # Print what would change (read-only)
 module::apply()     # Execute changes (idempotent)
 module::status()    # One-line current state summary
 ```
 
-`./setup` dispatches to modules. Dry-run by default, `--apply` to execute.
+`./setup` dispatches to modules. Dry-run by default, `--apply` to execute. `::init` is called before `::check` so modules can read profile keys and cache state once.
 
 ## Theming stack
 

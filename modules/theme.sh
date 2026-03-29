@@ -1,4 +1,5 @@
-# modules/theme.sh — Theme module (accent colors + icon theme + SDDM).
+# shellcheck shell=bash
+# modules/theme.sh -- Theme module (accent colors + icon theme + SDDM).
 # Source this file; do not execute it directly.
 #
 # Assumes all libs sourced, REPO_ROOT set.
@@ -46,12 +47,12 @@ _ACCENT_BASH_PROMPT="bash/prompt.sh"
 # Detection helpers
 # ---------------------------------------------------------------------------
 
-# _detect_preset_in_file <file> <method>
-# method: "hex"  — match PRIMARY color with '#' prefix (most config files)
-#         "bare" — match PRIMARY color without '#' (swaylock)
-#         "ansi" — match ANSI code number (bash prompt)
+# _theme_detect_preset_in_file <file> <method>
+# method: "hex"  -- match PRIMARY color with '#' prefix (most config files)
+#         "bare" -- match PRIMARY color without '#' (swaylock)
+#         "ansi" -- match ANSI code number (bash prompt)
 # Returns: preset name, "missing", "broken", "unknown", or "mixed(a+b)"
-_detect_preset_in_file() {
+_theme_detect_preset_in_file() {
     local file="$1"
     local method="$2"
     [[ -f "$file" ]] || { echo "missing"; return; }
@@ -65,6 +66,7 @@ _detect_preset_in_file() {
     # ANSI method has completely different matching logic
     if [[ "$method" == "ansi" ]]; then
         local ansi_code
+        # shellcheck disable=SC2016  # matching literal $() in target file
         ansi_code=$(sed -n 's/^_GREEN="\$(_pc \([0-9]*\))".*/\1/p' "$file")
         [[ -z "$ansi_code" ]] && { echo "unknown"; return; }
         local preset
@@ -122,38 +124,38 @@ _detect_preset_in_file() {
     fi
 }
 
-# _detect_all_files
+# _theme_detect_all_files
 # Populates _DETECT_RESULTS associative array: file → detected preset name.
 # Must call load_all_presets + load_accent before calling.
 declare -gA _DETECT_RESULTS=()
 
-_detect_all_files() {
+_theme_detect_all_files() {
     _DETECT_RESULTS=()
     local config_dir="$REPO_ROOT/config"
     local f
 
     for f in "${_ACCENT_HEX_FILES[@]}"; do
-        _DETECT_RESULTS["$f"]=$(_detect_preset_in_file "$config_dir/$f" hex)
+        _DETECT_RESULTS["$f"]=$(_theme_detect_preset_in_file "$config_dir/$f" hex)
     done
 
     # Sway files: only detect if sway is present
     if command -v sway &>/dev/null; then
         for f in "${_ACCENT_SWAY_FILES[@]}"; do
-            _DETECT_RESULTS["$f"]=$(_detect_preset_in_file "$config_dir/$f" hex)
+            _DETECT_RESULTS["$f"]=$(_theme_detect_preset_in_file "$config_dir/$f" hex)
         done
         for f in "${_ACCENT_BARE_FILES[@]}"; do
-            _DETECT_RESULTS["$f"]=$(_detect_preset_in_file "$config_dir/$f" bare)
+            _DETECT_RESULTS["$f"]=$(_theme_detect_preset_in_file "$config_dir/$f" bare)
         done
     fi
 
     # Tela icon theme files (detect by Tela-{preset} name)
     for f in "${_ACCENT_TELA_FILES[@]}"; do
-        _DETECT_RESULTS["$f"]=$(_detect_preset_in_file "$config_dir/$f" tela)
+        _DETECT_RESULTS["$f"]=$(_theme_detect_preset_in_file "$config_dir/$f" tela)
     done
 
     # Bash prompt
     _DETECT_RESULTS["$_ACCENT_BASH_PROMPT"]=$(
-        _detect_preset_in_file "$config_dir/$_ACCENT_BASH_PROMPT" ansi
+        _theme_detect_preset_in_file "$config_dir/$_ACCENT_BASH_PROMPT" ansi
     )
 }
 
@@ -161,9 +163,7 @@ _detect_all_files() {
 # List presets
 # ---------------------------------------------------------------------------
 
-list_presets() {
-    load_all_presets
-    load_accent
+_theme_list_presets() {
     echo ""
     echo "Active accent: $ACCENT_NAME"
     echo ""
@@ -187,12 +187,11 @@ list_presets() {
 # Audit
 # ---------------------------------------------------------------------------
 
-audit_accents() {
+_theme_audit_accents() {
     local config_dir="$REPO_ROOT/config"
-    load_all_presets
-    load_accent
 
     local expected="$ACCENT_NAME"
+    # shellcheck disable=SC2034  # exp_ansi used indirectly
     read -r exp_p exp_d exp_dk exp_br exp_s exp_ansi <<< "${COLOR_PRESETS[$expected]}"
 
     echo ""
@@ -227,14 +226,14 @@ audit_accents() {
         IFS='|' read -r label filepath method <<< "$item"
 
         local detected=""
-        detected=$(_detect_preset_in_file "$filepath" "$method")
+        detected=$(_theme_detect_preset_in_file "$filepath" "$method")
 
         local status="OK"
         if [[ "$detected" == "missing" ]]; then
             status="FILE NOT FOUND"
             anomalies=$((anomalies + 1))
         elif [[ "$detected" == "broken" ]]; then
-            status="BROKEN — leftover placeholders from interrupted run"
+            status="BROKEN -- leftover placeholders from interrupted run"
             anomalies=$((anomalies + 1))
         elif [[ "$detected" == "unknown" ]]; then
             local _tela_found=""
@@ -250,7 +249,7 @@ audit_accents() {
                 if [[ "$_tela_found" == "$expected" ]]; then
                     status="OK (icon theme)"
                 else
-                    status="MISMATCH — expected $expected (icon theme)"
+                    status="MISMATCH -- expected $expected (icon theme)"
                     anomalies=$((anomalies + 1))
                 fi
             else
@@ -258,7 +257,7 @@ audit_accents() {
                 anomalies=$((anomalies + 1))
             fi
         elif [[ "$detected" != "$expected" ]]; then
-            status="MISMATCH — expected $expected"
+            status="MISMATCH -- expected $expected"
             anomalies=$((anomalies + 1))
         fi
 
@@ -289,7 +288,7 @@ _theme_cleanup() {
 # Tela icon theme
 # ---------------------------------------------------------------------------
 
-_install_tela_icon_theme() {
+_theme_install_tela() {
     require_cmd git "sudo dnf install -y git"
 
     local tela_dir="${_TELA_ICON_BASE}/Tela-${ACCENT_NAME}"
@@ -300,12 +299,12 @@ _install_tela_icon_theme() {
     elif [[ -f "$tela_dir/scalable/places/default-folder.svg" ]]; then
         if [[ "$ACCENT_NAME" != "standard" ]] \
             && grep -qi '#5294e2' "$tela_dir/scalable/places/default-folder.svg"; then
-            warn "Tela-${ACCENT_NAME} contains default blue icons — reinstalling..."
+            warn "Tela-${ACCENT_NAME} contains default blue icons -- reinstalling..."
             rm -rf "$tela_dir" "${tela_dir}-dark" "${tela_dir}-light"
             need_install=true
         fi
     else
-        warn "Tela-${ACCENT_NAME} is incomplete — reinstalling..."
+        warn "Tela-${ACCENT_NAME} is incomplete -- reinstalling..."
         rm -rf "$tela_dir" "${tela_dir}-dark" "${tela_dir}-light"
         need_install=true
     fi
@@ -314,7 +313,7 @@ _install_tela_icon_theme() {
         info "Installing Tela ${ACCENT_NAME} icon theme (user-local)..."
         local tela_tmp="${_THEME_TMPDIR}/tela-icon-theme"
         if ! git clone --depth 1 https://github.com/vinceliuice/Tela-icon-theme.git "$tela_tmp" 2>&1; then
-            warn "Failed to clone Tela-icon-theme — skipping icon theme"
+            warn "Failed to clone Tela-icon-theme -- skipping icon theme"
             return 0
         fi
         bash "$tela_tmp/install.sh" -d "${_TELA_ICON_BASE}" "$ACCENT_NAME"
@@ -328,9 +327,9 @@ _install_tela_icon_theme() {
 # SDDM theming (split into focused helpers)
 # ---------------------------------------------------------------------------
 
-# _install_sddm_corners <theme_dir>
+# _theme_install_sddm_corners <theme_dir>
 # Git clones sddm-theme-corners, applies Qt6 patch, adds dark background.
-_install_sddm_corners() {
+_theme_install_sddm_corners() {
     local sddm_theme_dir="$1"
 
     pkg_install qt6-qt5compat qt6-qtsvg
@@ -340,7 +339,7 @@ _install_sddm_corners() {
     else
         local corners_tmp="${_THEME_TMPDIR}/corners"
         if ! git clone --depth 1 https://github.com/aczw/sddm-theme-corners.git "$corners_tmp" 2>&1; then
-            warn "Failed to clone sddm-theme-corners — skipping"
+            warn "Failed to clone sddm-theme-corners -- skipping"
             return 0
         fi
         sudo cp -r "$corners_tmp/corners" "$sddm_theme_dir" \
@@ -371,14 +370,14 @@ _install_sddm_corners() {
     sudo chmod 644 "$sddm_theme_dir/theme.conf"
 }
 
-# _apply_sddm_stock <theme_dir>
+# _theme_apply_sddm_stock <theme_dir>
 # Configures stock Fedora SDDM theme with dark grey background.
-_apply_sddm_stock() {
+_theme_apply_sddm_stock() {
     local sddm_theme_dir="$1"
     local bg_src="$REPO_ROOT/config/sddm/background-dark-grey.png"
 
     if [[ ! -d "$sddm_theme_dir" ]]; then
-        warn "Stock SDDM theme not found at $sddm_theme_dir — is sddm installed?"
+        warn "Stock SDDM theme not found at $sddm_theme_dir -- is sddm installed?"
         return 0
     fi
 
@@ -395,9 +394,9 @@ _apply_sddm_stock() {
     ok "Dark grey background applied to stock SDDM theme"
 }
 
-# _set_sddm_active_theme <theme_name>
+# _theme_set_sddm_active <theme_name>
 # Writes /etc/sddm.conf.d/theme.conf, disables greetd if active, enables sddm.
-_set_sddm_active_theme() {
+_theme_set_sddm_active() {
     local theme_name="$1"
     local sddm_conf_tmp="${_THEME_TMPDIR}/sddm-active.conf"
     printf '[Theme]\nCurrent=%s\n' "$theme_name" > "$sddm_conf_tmp"
@@ -414,83 +413,94 @@ _set_sddm_active_theme() {
     ok "SDDM configured (theme: $theme_name)"
 }
 
-# _apply_sddm — Orchestrator
-# Calls the appropriate variant based on --corners flag, then sets active theme.
-_apply_sddm() {
+# _theme_apply_sddm -- Orchestrator
+# Calls the appropriate variant based on sddm_theme profile key.
+_theme_apply_sddm() {
+    if [[ "$_THEME_SDDM_VARIANT" == "none" ]]; then
+        info "SDDM theming: disabled by profile -- skipping"
+        return 0
+    fi
+
     if ! rpm -q sddm &>/dev/null; then
-        info "SDDM not installed — skipping SDDM theming"
+        info "SDDM not installed -- skipping SDDM theming"
         return 0
     fi
 
     info "Configuring SDDM theme..."
 
-    if [[ "$_THEME_CORNERS" == true ]]; then
-        _install_sddm_corners "${_SDDM_THEME_BASE}/corners"
-        _set_sddm_active_theme "corners"
-    else
-        _apply_sddm_stock "${_SDDM_THEME_BASE}/03-sway-fedora"
-        _set_sddm_active_theme "03-sway-fedora"
-    fi
+    case "$_THEME_SDDM_VARIANT" in
+        corners)
+            _theme_install_sddm_corners "${_SDDM_THEME_BASE}/corners"
+            _theme_set_sddm_active "corners"
+            ;;
+        *)
+            _theme_apply_sddm_stock "${_SDDM_THEME_BASE}/03-sway-fedora"
+            _theme_set_sddm_active "03-sway-fedora"
+            ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
-# Flag parsing
+# Flag parsing (only permanent flags: --accent, --list, --audit)
 # ---------------------------------------------------------------------------
 
 _theme_parse_flags() {
     _THEME_ACCENT_OVERRIDE=""
     _THEME_DO_LIST=false
     _THEME_DO_AUDIT=false
-    _THEME_CORNERS=false
-    local arg
-    for arg in "$@"; do
-        case "$arg" in
-            --list)    _THEME_DO_LIST=true ;;
-            --audit)   _THEME_DO_AUDIT=true ;;
-            --corners) _THEME_CORNERS=true ;;
-            --accent)  ;; # value follows
-            *)
-                # Check if previous arg was --accent
-                if [[ "${_prev_arg:-}" == "--accent" ]]; then
-                    _THEME_ACCENT_OVERRIDE="$arg"
+    local args=("$@")
+    local i
+    for (( i=0; i<${#args[@]}; i++ )); do
+        case "${args[$i]}" in
+            --list)  _THEME_DO_LIST=true ;;
+            --audit) _THEME_DO_AUDIT=true ;;
+            --accent)
+                if (( i + 1 >= ${#args[@]} )); then
+                    echo "Error: --accent requires a value" >&2
+                    return 1
                 fi
+                (( i++ ))
+                _THEME_ACCENT_OVERRIDE="${args[$i]}"
                 ;;
         esac
-        _prev_arg="$arg"
     done
-    unset _prev_arg
 }
 
 # ---------------------------------------------------------------------------
 # Module contract
 # ---------------------------------------------------------------------------
 
-theme::check() {
+theme::init() {
     _theme_parse_flags "$@"
+    _THEME_SDDM_VARIANT="${PROFILE_THEME_SDDM_THEME:-stock}"
 
+    load_all_presets
+    if [[ -n "$_THEME_ACCENT_OVERRIDE" ]]; then
+        export PROFILE_THEME_ACCENT="${_THEME_ACCENT_OVERRIDE}"
+    fi
+    load_accent
+}
+
+theme::check() {
     # Special modes bypass check
     [[ "$_THEME_DO_LIST" == true ]] && return 0
     [[ "$_THEME_DO_AUDIT" == true ]] && return 0
 
-    load_all_presets
-    if [[ -n "$_THEME_ACCENT_OVERRIDE" ]]; then
-        PROFILE_THEME_ACCENT="${_THEME_ACCENT_OVERRIDE}"
-    fi
-    load_accent
-
-    _detect_all_files
+    _theme_detect_all_files
     local f
     for f in "${!_DETECT_RESULTS[@]}"; do
         [[ "${_DETECT_RESULTS[$f]}" != "$ACCENT_NAME" ]] && return 0
     done
 
-    # Check icon theme
-    [[ ! -d "${_TELA_ICON_BASE}/Tela-${ACCENT_NAME}" ]] && return 0
+    # Check icon theme (if enabled)
+    if [[ "${PROFILE_THEME_TELA_ICONS:-true}" == "true" ]]; then
+        [[ ! -d "${_TELA_ICON_BASE}/Tela-${ACCENT_NAME}" ]] && return 0
+    fi
 
-    # Check SDDM state (if installed)
-    if rpm -q sddm &>/dev/null; then
+    # Check SDDM state (if installed and not disabled)
+    if [[ "$_THEME_SDDM_VARIANT" != "none" ]] && rpm -q sddm &>/dev/null; then
         local expected_theme="03-sway-fedora"
-        [[ "$_THEME_CORNERS" == true ]] && expected_theme="corners"
+        [[ "$_THEME_SDDM_VARIANT" == "corners" ]] && expected_theme="corners"
 
         # Theme directory must exist
         [[ ! -d "${_SDDM_THEME_BASE}/${expected_theme}" ]] && return 0
@@ -504,7 +514,7 @@ theme::check() {
         local deployed_conf="${_SDDM_THEME_BASE}/${expected_theme}/theme.conf"
         if [[ -f "$deployed_conf" ]]; then
             local sddm_accent
-            sddm_accent=$(_detect_preset_in_file "$deployed_conf" hex)
+            sddm_accent=$(_theme_detect_preset_in_file "$deployed_conf" hex)
             [[ "$sddm_accent" != "$ACCENT_NAME" ]] && return 0
         fi
     fi
@@ -513,30 +523,24 @@ theme::check() {
 }
 
 theme::preview() {
-    _theme_parse_flags "$@"
-
     # Special modes
     if [[ "$_THEME_DO_LIST" == true ]]; then
-        list_presets
+        _theme_list_presets
         return 0
     fi
     if [[ "$_THEME_DO_AUDIT" == true ]]; then
-        audit_accents
+        _theme_audit_accents
         return 0
     fi
-
-    load_all_presets
-    if [[ -n "$_THEME_ACCENT_OVERRIDE" ]]; then
-        PROFILE_THEME_ACCENT="${_THEME_ACCENT_OVERRIDE}"
-    fi
-    load_accent
 
     info "[theme] Preview:"
     echo "  Target accent: $ACCENT_NAME"
     echo "  PRIMARY=$ACCENT_PRIMARY DIM=$ACCENT_DIM DARK=$ACCENT_DARK BRIGHT=$ACCENT_BRIGHT SECONDARY=$ACCENT_SECONDARY"
+    echo "  Tela icons: ${PROFILE_THEME_TELA_ICONS:-true}"
+    echo "  SDDM theme: $_THEME_SDDM_VARIANT"
     echo ""
 
-    _detect_all_files
+    _theme_detect_all_files
     echo "  Config file status:"
     local f
     for f in "${!_DETECT_RESULTS[@]}"; do
@@ -547,27 +551,32 @@ theme::preview() {
     done
 
     # Icon theme
-    local tela_dir="${_TELA_ICON_BASE}/Tela-${ACCENT_NAME}"
-    if [[ -d "$tela_dir" ]]; then
-        echo "  Icon theme: Tela-${ACCENT_NAME}  [installed]"
+    if [[ "${PROFILE_THEME_TELA_ICONS:-true}" == "true" ]]; then
+        local tela_dir="${_TELA_ICON_BASE}/Tela-${ACCENT_NAME}"
+        if [[ -d "$tela_dir" ]]; then
+            echo "  Icon theme: Tela-${ACCENT_NAME}  [installed]"
+        else
+            echo "  Icon theme: Tela-${ACCENT_NAME}  [WILL INSTALL]"
+        fi
     else
-        echo "  Icon theme: Tela-${ACCENT_NAME}  [WILL INSTALL]"
+        echo "  Icon theme: disabled by profile  [SKIP]"
     fi
 
     # SDDM
-    if rpm -q sddm &>/dev/null; then
+    if [[ "$_THEME_SDDM_VARIANT" == "none" ]]; then
+        echo "  SDDM: disabled by profile  [SKIP]"
+    elif rpm -q sddm &>/dev/null; then
         local expected_theme="03-sway-fedora"
-        [[ "$_THEME_CORNERS" == true ]] && expected_theme="corners"
+        [[ "$_THEME_SDDM_VARIANT" == "corners" ]] && expected_theme="corners"
         local current_theme
         current_theme=$(grep -oP 'Current=\K.*' /etc/sddm.conf.d/theme.conf 2>/dev/null || echo "none")
         if [[ "$current_theme" != "$expected_theme" ]]; then
             echo "  SDDM: $current_theme → $expected_theme  [WILL UPDATE]"
         else
-            # Check deployed accent colors
             local deployed_conf="${_SDDM_THEME_BASE}/${expected_theme}/theme.conf"
             if [[ -f "$deployed_conf" ]]; then
                 local sddm_accent
-                sddm_accent=$(_detect_preset_in_file "$deployed_conf" hex)
+                sddm_accent=$(_theme_detect_preset_in_file "$deployed_conf" hex)
                 if [[ "$sddm_accent" != "$ACCENT_NAME" ]]; then
                     echo "  SDDM: $expected_theme accent $sddm_accent → $ACCENT_NAME  [WILL UPDATE]"
                 else
@@ -583,23 +592,15 @@ theme::preview() {
 }
 
 theme::apply() {
-    _theme_parse_flags "$@"
-
     # Special modes
     if [[ "$_THEME_DO_LIST" == true ]]; then
-        list_presets
+        _theme_list_presets
         return 0
     fi
     if [[ "$_THEME_DO_AUDIT" == true ]]; then
-        audit_accents
+        _theme_audit_accents
         return 0
     fi
-
-    load_all_presets
-    if [[ -n "$_THEME_ACCENT_OVERRIDE" ]]; then
-        PROFILE_THEME_ACCENT="${_THEME_ACCENT_OVERRIDE}"
-    fi
-    load_accent
 
     # Validate preset exists
     if [[ -z "${COLOR_PRESETS[$ACCENT_NAME]+x}" ]]; then
@@ -613,8 +614,12 @@ theme::apply() {
 
     info "Accent: $ACCENT_NAME ($ACCENT_PRIMARY)"
 
-    # 1. Tela icon theme
-    _install_tela_icon_theme
+    # 1. Tela icon theme (if enabled)
+    if [[ "${PROFILE_THEME_TELA_ICONS:-true}" == "true" ]]; then
+        _theme_install_tela
+    else
+        info "Tela icons: disabled by profile -- skipping"
+    fi
 
     # 2. Apply accent to config files
     local config_dir="$REPO_ROOT/config"
@@ -640,8 +645,8 @@ theme::apply() {
         ok "Bash prompt hostname color updated (ANSI $ACCENT_ANSI)"
     fi
 
-    # 4. SDDM (if installed)
-    _apply_sddm
+    # 4. SDDM (if applicable)
+    _theme_apply_sddm
 
     ok "Theme applied: $ACCENT_NAME"
 }

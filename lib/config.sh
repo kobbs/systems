@@ -1,4 +1,5 @@
-# lib/config.sh — INI profile parser.
+# shellcheck shell=bash
+# lib/config.sh -- INI profile parser.
 # Source this file; do not execute it directly.
 
 # ---------------------------------------------------------------------------
@@ -71,7 +72,7 @@ load_profile() {
     local compound_key
     for compound_key in "${!_CONFIG[@]}"; do
         if [[ "$compound_key" == .* ]]; then
-            echo "Warning: profiles: key '${compound_key#.}' has no [section] header — it will be ignored (check local.conf)" >&2
+            echo "Warning: profiles: key '${compound_key#.}' has no [section] header -- it will be ignored (check local.conf)" >&2
         fi
     done
 
@@ -101,4 +102,87 @@ profile_get() {
     local section="$1"
     local key="$2"
     printf '%s' "${_CONFIG["${section}.${key}"]:-}"
+}
+
+# ---------------------------------------------------------------------------
+# validate_profile
+# Checks all keys in _CONFIG against a known-key registry.
+# Rejects unknown keys and validates boolean types.
+# Must be called after load_profile. Exits non-zero on any error.
+# ---------------------------------------------------------------------------
+validate_profile() {
+    local -A _KNOWN_KEYS=(
+        # [system]
+        ["system.hostname"]=string
+        ["system.keyboard_layout"]=string
+        ["system.sway_spin"]=tristate
+        ["system.firewalld"]=boolean
+        ["system.bluetooth"]=boolean
+        ["system.tuned"]=boolean
+        # [packages]
+        ["packages.dnf_update"]=boolean
+        ["packages.rpm_fusion"]=boolean
+        ["packages.codec_swaps"]=boolean
+        ["packages.flatpak"]=boolean
+        ["packages.cli_tools"]=boolean
+        ["packages.security"]=boolean
+        ["packages.rocm"]=boolean
+        # [theme]
+        ["theme.accent"]=string
+        ["theme.gtk_theme"]=string
+        ["theme.icon_theme"]=string
+        ["theme.cursor_theme"]=string
+        ["theme.tela_icons"]=boolean
+        ["theme.sddm_theme"]=string
+        # [shell]
+        ["shell.default_shell"]=string
+        ["shell.docker_alias"]=boolean
+        ["shell.qt_env"]=boolean
+        ["shell.unset_ssh_askpass"]=boolean
+        # [apps]
+        ["apps.desktop_toolkit"]=string
+        ["apps.packs"]=string
+        ["apps.firefox_wayland"]=boolean
+        ["apps.kvm"]=boolean
+        ["apps.protonvpn"]=boolean
+    )
+
+    local errors=0
+    local compound_key type val
+
+    for compound_key in "${!_CONFIG[@]}"; do
+        # Skip sectionless keys (already warned by load_profile)
+        [[ "$compound_key" == .* ]] && continue
+
+        type="${_KNOWN_KEYS[$compound_key]:-}"
+        if [[ -z "$type" ]]; then
+            echo "ERROR: Unknown profile key '${compound_key}' -- check for typos in local.conf" >&2
+            (( errors++ ))
+            continue
+        fi
+
+        val="${_CONFIG[$compound_key]}"
+
+        case "$type" in
+            boolean)
+                if [[ "$val" != "true" && "$val" != "false" ]]; then
+                    echo "ERROR: Profile key '${compound_key}' must be 'true' or 'false', got '${val}'" >&2
+                    (( errors++ ))
+                fi
+                ;;
+            tristate)
+                if [[ "$val" != "true" && "$val" != "false" && "$val" != "auto" ]]; then
+                    echo "ERROR: Profile key '${compound_key}' must be 'true', 'false', or 'auto', got '${val}'" >&2
+                    (( errors++ ))
+                fi
+                ;;
+        esac
+    done
+
+    if [[ "$errors" -gt 0 ]]; then
+        echo "ERROR: ${errors} profile validation error(s). Fix local.conf and re-run." >&2
+        return 1
+    fi
+
+    return 0
 }

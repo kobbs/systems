@@ -1,4 +1,5 @@
-# modules/system.sh — System configuration module.
+# shellcheck shell=bash
+# modules/system.sh -- System configuration module.
 # Source this file; do not execute it directly.
 #
 # Handles: hostname, keyboard layout, GPU group membership,
@@ -8,64 +9,19 @@
 # and REPO_ROOT / PROFILE_* vars are set.
 
 # ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-# _detect_gpu
-# Sets _HAS_DISCRETE_AMD_GPU=true if a discrete AMD Navi/RDNA GPU is found.
-_detect_gpu() {
-    _HAS_DISCRETE_AMD_GPU=false
-    if lspci 2>/dev/null | grep -qi 'VGA.*AMD.*Navi\|VGA.*AMD.*RDNA'; then
-        _HAS_DISCRETE_AMD_GPU=true
-    fi
-}
-
-# _detect_mode [args...]
-# Determines Sway Spin mode from flags, persisted state, or auto-detection.
-# Sets SWAY_SPIN=true|false and persists the result to the mode file.
-#
-# Priority:
-#   1. --sway-spin / --kde-spin flag
-#   2. Persisted mode file (validated)
-#   3. Auto-detect via rpm -q sway
-_detect_mode() {
-    local _force_mode=""
-    local arg
-    for arg in "$@"; do
-        case "$arg" in
-            --sway-spin) _force_mode="sway-spin" ;;
-            --kde-spin)  _force_mode="kde-spin" ;;
-        esac
-    done
-
-    _MODE_FILE="$HOME/.config/shell/.bootstrap-mode"
-    SWAY_SPIN=false
-
-    if [[ "$_force_mode" == "sway-spin" ]]; then
-        SWAY_SPIN=true
-    elif [[ "$_force_mode" == "kde-spin" ]]; then
-        SWAY_SPIN=false
-    elif [[ -f "$_MODE_FILE" ]] && grep -qxE 'true|false' "$_MODE_FILE"; then
-        SWAY_SPIN=$(cat "$_MODE_FILE")
-    elif rpm -q sway &>/dev/null; then
-        SWAY_SPIN=true
-    fi
-
-    # Always persist
-    mkdir -p "$(dirname "$_MODE_FILE")"
-    echo "$SWAY_SPIN" > "$_MODE_FILE"
-}
-
-# ---------------------------------------------------------------------------
 # Module contract
 # ---------------------------------------------------------------------------
+
+# system::init [args...]
+# Detect GPU and mode once. Results cached in globals.
+system::init() {
+    detect_gpu
+    detect_mode
+}
 
 # system::check [args...]
 # Returns 0 if changes are needed, 1 if everything is up-to-date.
 system::check() {
-    _detect_gpu
-    _detect_mode "$@"
-
     local needs_change=false
 
     # Hostname
@@ -98,18 +54,24 @@ system::check() {
     fi
 
     # Firewalld
-    if ! systemctl is-active --quiet firewalld 2>/dev/null; then
-        needs_change=true
+    if [[ "${PROFILE_SYSTEM_FIREWALLD:-true}" == "true" ]]; then
+        if ! systemctl is-active --quiet firewalld 2>/dev/null; then
+            needs_change=true
+        fi
     fi
 
     # Bluetooth
-    if ! systemctl is-enabled --quiet bluetooth 2>/dev/null; then
-        needs_change=true
+    if [[ "${PROFILE_SYSTEM_BLUETOOTH:-true}" == "true" ]]; then
+        if ! systemctl is-enabled --quiet bluetooth 2>/dev/null; then
+            needs_change=true
+        fi
     fi
 
     # Tuned
-    if ! systemctl is-enabled --quiet tuned 2>/dev/null; then
-        needs_change=true
+    if [[ "${PROFILE_SYSTEM_TUNED:-true}" == "true" ]]; then
+        if ! systemctl is-enabled --quiet tuned 2>/dev/null; then
+            needs_change=true
+        fi
     fi
 
     if [[ "$needs_change" == true ]]; then
@@ -121,9 +83,6 @@ system::check() {
 # system::preview [args...]
 # Prints what would change without making modifications.
 system::preview() {
-    _detect_gpu
-    _detect_mode "$@"
-
     # Hostname
     local target_hostname current_hostname
     target_hostname="$(profile_get system hostname)"
@@ -161,26 +120,38 @@ system::preview() {
     fi
 
     # Firewalld
-    if ! systemctl is-active --quiet firewalld 2>/dev/null; then
-        echo "  Firewall: inactive → enable firewalld  [CHANGE]"
+    if [[ "${PROFILE_SYSTEM_FIREWALLD:-true}" == "true" ]]; then
+        if ! systemctl is-active --quiet firewalld 2>/dev/null; then
+            echo "  Firewall: inactive → enable firewalld  [CHANGE]"
+        else
+            local zone
+            zone="$(sudo firewall-cmd --get-default-zone 2>/dev/null || echo "unknown")"
+            echo "  Firewall: active (zone: ${zone})  [OK]"
+        fi
     else
-        local zone
-        zone="$(sudo firewall-cmd --get-default-zone 2>/dev/null || echo "unknown")"
-        echo "  Firewall: active (zone: ${zone})  [OK]"
+        echo "  Firewall: disabled by profile  [SKIP]"
     fi
 
     # Bluetooth
-    if ! systemctl is-enabled --quiet bluetooth 2>/dev/null; then
-        echo "  Bluetooth: disabled → enable  [CHANGE]"
+    if [[ "${PROFILE_SYSTEM_BLUETOOTH:-true}" == "true" ]]; then
+        if ! systemctl is-enabled --quiet bluetooth 2>/dev/null; then
+            echo "  Bluetooth: disabled → enable  [CHANGE]"
+        else
+            echo "  Bluetooth: enabled  [OK]"
+        fi
     else
-        echo "  Bluetooth: enabled  [OK]"
+        echo "  Bluetooth: disabled by profile  [SKIP]"
     fi
 
     # Tuned
-    if ! systemctl is-enabled --quiet tuned 2>/dev/null; then
-        echo "  Tuned: disabled → enable  [CHANGE]"
+    if [[ "${PROFILE_SYSTEM_TUNED:-true}" == "true" ]]; then
+        if ! systemctl is-enabled --quiet tuned 2>/dev/null; then
+            echo "  Tuned: disabled → enable  [CHANGE]"
+        else
+            echo "  Tuned: enabled  [OK]"
+        fi
     else
-        echo "  Tuned: enabled  [OK]"
+        echo "  Tuned: disabled by profile  [SKIP]"
     fi
 
     # Mode
@@ -190,9 +161,6 @@ system::preview() {
 # system::apply [args...]
 # Applies system configuration changes.
 system::apply() {
-    _detect_gpu
-    _detect_mode "$@"
-
     # Hostname
     local target_hostname
     target_hostname="$(profile_get system hostname)"
@@ -222,27 +190,39 @@ system::apply() {
 
     # GPU groups
     if [[ "$_HAS_DISCRETE_AMD_GPU" == true ]]; then
-        info "Discrete AMD GPU found — adding user to render/video groups"
+        info "Discrete AMD GPU found -- adding user to render/video groups"
         sudo usermod -aG video,render "$(id -un)"
         ok "GPU groups configured"
     else
-        info "No discrete AMD GPU detected — skipping GPU group setup"
+        info "No discrete AMD GPU detected -- skipping GPU group setup"
     fi
 
     # Firewall
-    if ! systemctl is-active --quiet firewalld 2>/dev/null; then
-        info "Enabling firewall..."
-        sudo systemctl enable --now firewalld
+    if [[ "${PROFILE_SYSTEM_FIREWALLD:-true}" == "true" ]]; then
+        if ! systemctl is-active --quiet firewalld 2>/dev/null; then
+            info "Enabling firewall..."
+            sudo systemctl enable --now firewalld
+        fi
+        ok "firewalld enabled (default zone: $(sudo firewall-cmd --get-default-zone 2>/dev/null || echo "unknown"))"
+    else
+        info "Firewall: disabled by profile -- skipping"
     fi
-    ok "firewalld enabled (default zone: $(sudo firewall-cmd --get-default-zone 2>/dev/null || echo "unknown"))"
 
     # Bluetooth
-    sudo systemctl enable --now bluetooth
-    ok "Bluetooth enabled"
+    if [[ "${PROFILE_SYSTEM_BLUETOOTH:-true}" == "true" ]]; then
+        sudo systemctl enable --now bluetooth
+        ok "Bluetooth enabled"
+    else
+        info "Bluetooth: disabled by profile -- skipping"
+    fi
 
     # Tuned
-    sudo systemctl enable --now tuned
-    ok "Tuned enabled"
+    if [[ "${PROFILE_SYSTEM_TUNED:-true}" == "true" ]]; then
+        sudo systemctl enable --now tuned
+        ok "Tuned enabled"
+    else
+        info "Tuned: disabled by profile -- skipping"
+    fi
 
     # Mode summary
     if [[ "$SWAY_SPIN" == true ]]; then
@@ -255,7 +235,7 @@ system::apply() {
 # system::status
 # Prints a one-line summary of current system configuration.
 system::status() {
-    _detect_gpu
+    detect_gpu
 
     local hostname_val keyboard_val zone_val gpu_val
 

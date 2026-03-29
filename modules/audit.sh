@@ -1,4 +1,5 @@
-# modules/audit.sh — Package audit module.
+# shellcheck shell=bash
+# modules/audit.sh -- Package audit module.
 # Source this file; do not execute it directly.
 #
 # Reads manifest files, compares against installed leaf packages and flatpaks,
@@ -7,10 +8,16 @@
 # Assumes lib/common.sh is sourced. PKG_MANIFEST, FLATPAK_MANIFEST available.
 
 # ---------------------------------------------------------------------------
+# Module init (no-op -- audit is read-only)
+# ---------------------------------------------------------------------------
+
+audit::init() { :; }
+
+# ---------------------------------------------------------------------------
 # Formatting helper
 # ---------------------------------------------------------------------------
 
-_pkg_line() {
+_audit_pkg_line() {
     local tag="$1" pkg="$2"
     local size_bytes size_mb install_date
     size_bytes=$(rpm -q --qf '%{SIZE}\n' "$pkg" 2>/dev/null | head -1 || echo "0")
@@ -29,7 +36,7 @@ audit::check() {
 }
 
 audit::preview() {
-    # Audit is read-only — preview is the same as apply
+    # Audit is read-only -- preview is the same as apply
     audit::apply "$@"
 }
 
@@ -91,19 +98,19 @@ audit::apply() {
     local report="$report_dir/pkg-audit-${date_stamp}.txt"
 
     {
-        echo "# Package Audit — $(hostname -s) — $(date '+%Y-%m-%d')"
+        echo "# Package Audit -- $(hostname -s) -- $(date '+%Y-%m-%d')"
         echo ""
         echo "# Extra leaf packages (unmanaged)"
         echo ""
         for pkg in "${extra_leaves[@]+"${extra_leaves[@]}"}"; do
-            _pkg_line "[extra]" "$pkg"
+            _audit_pkg_line "[extra]" "$pkg"
         done
 
         echo ""
         echo "# Managed leaf packages"
         echo ""
         for pkg in "${managed_leaves[@]+"${managed_leaves[@]}"}"; do
-            _pkg_line "[managed]" "$pkg"
+            _audit_pkg_line "[managed]" "$pkg"
         done
 
         echo ""
@@ -128,6 +135,7 @@ audit::apply() {
 
 audit::status() {
     local latest
+    # shellcheck disable=SC2012  # filenames are controlled (pkg-audit-YYYYMMDD.txt)
     latest=$(ls -t /var/tmp/pkg-audit-*.txt 2>/dev/null | head -1)
     if [[ -n "$latest" ]]; then
         echo "audit: last report $(basename "$latest")"

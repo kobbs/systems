@@ -1,4 +1,5 @@
-# modules/dotfiles.sh — Dotfile symlink deployment module.
+# shellcheck shell=bash
+# modules/dotfiles.sh -- Dotfile symlink deployment module.
 # Source this file; do not execute it directly.
 #
 # Handles: symlink creation from config/ → ~/.config/, local override files,
@@ -66,10 +67,16 @@ _LOCAL_OVERRIDES=(
 )
 
 # ---------------------------------------------------------------------------
+# Module init (no-op -- dotfiles has no flags or profile-specific init)
+# ---------------------------------------------------------------------------
+
+dotfiles::init() { :; }
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_condition_met() {
+_dotfiles_condition_met() {
     case "$1" in
         always) return 0 ;;
         sway)   command -v sway &>/dev/null ;;
@@ -78,7 +85,7 @@ _condition_met() {
     esac
 }
 
-_ensure_bashrc_line() {
+_dotfiles_ensure_bashrc_line() {
     local marker="$1" line="$2"
     grep -qF "$marker" "$HOME/.bashrc" 2>/dev/null || echo "$line" >> "$HOME/.bashrc"
 }
@@ -92,7 +99,7 @@ dotfiles::check() {
     local entry
     for entry in "${_SYMLINK_MAP[@]}"; do
         IFS='|' read -r rel dst cond <<< "$entry"
-        _condition_met "$cond" || continue
+        _dotfiles_condition_met "$cond" || continue
         local src="$config_dir/$rel"
         local status
         status=$(check_link "$src" "$dst")
@@ -107,7 +114,7 @@ dotfiles::preview() {
     local entry
     for entry in "${_SYMLINK_MAP[@]}"; do
         IFS='|' read -r rel dst cond <<< "$entry"
-        _condition_met "$cond" || continue
+        _dotfiles_condition_met "$cond" || continue
         local src="$config_dir/$rel"
         local status
         status=$(check_link "$src" "$dst")
@@ -130,25 +137,27 @@ dotfiles::apply() {
     local entry
     for entry in "${_SYMLINK_MAP[@]}"; do
         IFS='|' read -r rel dst cond <<< "$entry"
-        _condition_met "$cond" || continue
+        _dotfiles_condition_met "$cond" || continue
         link_file "$config_dir/$rel" "$dst"
     done
 
     # Create local overrides
     for entry in "${_LOCAL_OVERRIDES[@]}"; do
         IFS='|' read -r dst comment cond <<< "$entry"
-        _condition_met "$cond" || continue
+        _dotfiles_condition_met "$cond" || continue
         ensure_local_override "$dst" "$comment"
     done
 
     # .bashrc source lines (idempotent)
-    _ensure_bashrc_line "prompt.sh" \
+    # shellcheck disable=SC2016  # single quotes intentional -- $HOME expands at runtime
+    _dotfiles_ensure_bashrc_line "prompt.sh" \
         '[[ -f "$HOME/.config/shell/prompt.sh" ]] && source "$HOME/.config/shell/prompt.sh"'
-    _ensure_bashrc_line "completions.sh" \
+    # shellcheck disable=SC2016
+    _dotfiles_ensure_bashrc_line "completions.sh" \
         '[[ -f "$HOME/.config/shell/completions.sh" ]] && source "$HOME/.config/shell/completions.sh"'
 
     # Make waybar scripts executable
-    if _condition_met "sway" && compgen -G "$config_dir/waybar/scripts/*.sh" >/dev/null 2>&1; then
+    if _dotfiles_condition_met "sway" && compgen -G "$config_dir/waybar/scripts/*.sh" >/dev/null 2>&1; then
         chmod +x "$config_dir"/waybar/scripts/*.sh
         ok "waybar scripts marked executable"
     fi
@@ -162,7 +171,7 @@ dotfiles::status() {
     local entry
     for entry in "${_SYMLINK_MAP[@]}"; do
         IFS='|' read -r rel dst cond <<< "$entry"
-        _condition_met "$cond" || continue
+        _dotfiles_condition_met "$cond" || continue
         total=$((total + 1))
         [[ "$(check_link "$config_dir/$rel" "$dst")" == "ok" ]] && linked=$((linked + 1))
     done

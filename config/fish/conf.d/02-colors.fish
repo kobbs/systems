@@ -5,11 +5,11 @@ status is-interactive; or return
 
 # -- Accent colors (sed-swappable by apply_accent) -------------------------
 # These use green preset values. apply_accent replaces them with the active preset.
-set -g __accent_primary   "#ff8800"
-set -g __accent_dim       "#995200"
-set -g __accent_dark      "#4d2900"
-set -g __accent_bright    "#ffcc44"
-set -g __accent_secondary "#ff8800"
+set -g __accent_primary   "#88DD00"
+set -g __accent_dim       "#557700"
+set -g __accent_dark      "#2A3B00"
+set -g __accent_bright    "#8BE235"
+set -g __accent_secondary "#88DD00"
 
 # -- Fish syntax highlighting ----------------------------------------------
 # Derive bare hex values from accent vars (fish_color_* needs hex without #)

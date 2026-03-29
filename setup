@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC1090
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -12,11 +13,59 @@ source "$REPO_ROOT/lib/config.sh"
 source "$REPO_ROOT/lib/colors.sh"
 source "$REPO_ROOT/lib/links.sh"
 
-# Load profile
+# Load profile and validate
 load_profile "$REPO_ROOT/profiles"
+validate_profile
 
 # Load color presets
 load_all_presets
+
+# ---------------------------------------------------------------------------
+# CLI override translation (deprecated flags -> PROFILE_* vars)
+# ---------------------------------------------------------------------------
+
+_apply_cli_overrides() {
+    local args=("$@")
+    local i
+    for (( i=0; i<${#args[@]}; i++ )); do
+        case "${args[$i]}" in
+            --sway-spin)
+                warn "Deprecated: --sway-spin -- use 'system.sway_spin = true' in profiles/local.conf"
+                export PROFILE_SYSTEM_SWAY_SPIN=true
+                ;;
+            --kde-spin)
+                warn "Deprecated: --kde-spin -- use 'system.sway_spin = false' in profiles/local.conf"
+                export PROFILE_SYSTEM_SWAY_SPIN=false
+                ;;
+            --rocm)
+                warn "Deprecated: --rocm -- use 'packages.rocm = true' in profiles/local.conf"
+                export PROFILE_PACKAGES_ROCM=true
+                ;;
+            --devops)
+                warn "Deprecated: --devops -- use 'apps.packs = base devops' in profiles/local.conf"
+                if [[ -z "${PROFILE_APPS_PACKS:-}" ]] || [[ "$PROFILE_APPS_PACKS" == "base" ]]; then
+                    export PROFILE_APPS_PACKS="base devops"
+                elif [[ "$PROFILE_APPS_PACKS" != *devops* ]]; then
+                    export PROFILE_APPS_PACKS="${PROFILE_APPS_PACKS} devops"
+                fi
+                ;;
+            --corners)
+                warn "Deprecated: --corners -- use 'theme.sddm_theme = corners' in profiles/local.conf"
+                export PROFILE_THEME_SDDM_THEME=corners
+                ;;
+            --accent)
+                if (( i + 1 >= ${#args[@]} )); then
+                    echo "Error: --accent requires a value" >&2
+                    exit 1
+                fi
+                (( i++ ))
+                export PROFILE_THEME_ACCENT="${args[$i]}"
+                ;;
+        esac
+    done
+}
+
+_apply_cli_overrides "$@"
 
 # ---------------------------------------------------------------------------
 # Module infrastructure
@@ -33,6 +82,8 @@ run_module() {
     done
 
     source "$REPO_ROOT/modules/${module}.sh"
+
+    "${module}::init" "${args[@]+"${args[@]}"}"
 
     if ! "${module}::check" "${args[@]+"${args[@]}"}"; then
         info "$module: already up to date"
@@ -58,6 +109,9 @@ run_all_modules() {
         source "$REPO_ROOT/modules/${module}.sh"
         echo ""
         info "=== $module ==="
+        if declare -F "${module}::init" &>/dev/null; then
+            "${module}::init" "${args[@]+"${args[@]}"}"
+        fi
         if "${module}::check" "${args[@]+"${args[@]}"}"; then
             if [[ "$apply" == true ]]; then
                 "${module}::apply" "${args[@]+"${args[@]}"}"
@@ -120,14 +174,19 @@ Commands:
 Global options:
   --apply                Execute changes (without this, only previews)
 
-Module options (passed through):
-  packages --rocm        Include ROCm stack
-  packages --sway-spin   Force Sway Spin mode
-  apps --devops          Include DevOps tooling
-  theme --accent <name>  Override accent color
-  theme --list           List available presets
-  theme --audit          Check for color drift
-  theme --corners        Use sddm-theme-corners
+Permanent:
+  --accent <name>        Override accent color (one-off, not persisted)
+
+Read-only utilities:
+  theme --list           List available color presets
+  theme --audit          Check config files for color drift
+
+Deprecated (use profiles/local.conf instead):
+  --sway-spin            -> system.sway_spin = true
+  --kde-spin             -> system.sway_spin = false
+  --rocm                 -> packages.rocm = true
+  --devops               -> apps.packs = base devops
+  --corners              -> theme.sddm_theme = corners
 EOF
     exit 0
 }
@@ -150,5 +209,5 @@ case "$cmd" in
     diff)       run_diff ;;
     status)     run_status ;;
     help|-h|--help) usage ;;
-    *)          echo "Unknown command: $cmd" >&2; usage; exit 1 ;;
+    *)          echo "Unknown command: $cmd" >&2; usage ;;
 esac

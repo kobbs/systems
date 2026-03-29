@@ -1,4 +1,5 @@
-# lib/common.sh — Core utility library, sourced by all modules.
+# shellcheck shell=bash
+# lib/common.sh -- Core utility library, sourced by all modules.
 # Source this file; do not execute it directly.
 #
 # Color/accent functions live in lib/colors.sh.
@@ -56,7 +57,7 @@ require_cmd() {
 }
 
 # ---------------------------------------------------------------------------
-# Package manifest paths — used by pkg_install and audit.sh
+# Package manifest paths -- used by pkg_install and audit.sh
 # ---------------------------------------------------------------------------
 PKG_MANIFEST="$HOME/.config/shell/.pkg-manifest"
 FLATPAK_MANIFEST="$HOME/.config/shell/.flatpak-manifest"
@@ -83,9 +84,51 @@ ensure_bashrc_source() {
     mkdir -p "$HOME/.config/shell"
     # Use single-quoted heredoc-style string so $HOME is evaluated at shell
     # startup time, not baked in at install time (matches prompt.sh pattern).
+    # shellcheck disable=SC2016  # single quotes intentional -- $HOME expands at runtime
     local source_line='[[ -f "$HOME/.config/shell/bootstrap-env.sh" ]] && source "$HOME/.config/shell/bootstrap-env.sh"'
     grep -qF "bootstrap-env.sh" "$HOME/.bashrc" 2>/dev/null || \
         echo "$source_line" >> "$HOME/.bashrc"
+}
+
+# ---------------------------------------------------------------------------
+# detect_gpu
+# Sets _HAS_DISCRETE_AMD_GPU=true if a discrete AMD Navi/RDNA GPU is found.
+# ---------------------------------------------------------------------------
+detect_gpu() {
+    _HAS_DISCRETE_AMD_GPU=false
+    if lspci 2>/dev/null | grep -qi 'VGA.*AMD.*Navi\|VGA.*AMD.*RDNA'; then
+        _HAS_DISCRETE_AMD_GPU=true
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# detect_mode
+# Determines Sway Spin mode from PROFILE_SYSTEM_SWAY_SPIN (tri-state).
+# Sets SWAY_SPIN=true|false.
+#
+# When true/false: uses the profile value directly, mode file is ignored.
+# When auto: reads persisted cache, falls back to rpm -q sway detection,
+#            and persists the result for future auto runs.
+# ---------------------------------------------------------------------------
+detect_mode() {
+    local profile_val="${PROFILE_SYSTEM_SWAY_SPIN:-auto}"
+    local mode_file="$HOME/.config/shell/.bootstrap-mode"
+    SWAY_SPIN=false
+
+    case "$profile_val" in
+        true)  SWAY_SPIN=true ;;
+        false) SWAY_SPIN=false ;;
+        auto)
+            if [[ -f "$mode_file" ]] && grep -qxE 'true|false' "$mode_file"; then
+                SWAY_SPIN=$(cat "$mode_file")
+            elif rpm -q sway &>/dev/null; then
+                SWAY_SPIN=true
+            fi
+            # Persist for future auto runs
+            mkdir -p "$(dirname "$mode_file")"
+            echo "$SWAY_SPIN" > "$mode_file"
+            ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------

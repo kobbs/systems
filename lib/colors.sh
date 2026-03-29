@@ -1,6 +1,7 @@
-# lib/colors.sh — Color preset system
+# shellcheck shell=bash
+# lib/colors.sh -- Color preset system
 # Sourced by other scripts, not executed directly.
-# Requires: lib/config.sh (for _parse_ini), REPO_ROOT set by caller.
+# Requires: REPO_ROOT set by caller.
 # ---------------------------------------------------------------------------
 
 declare -gA COLOR_PRESETS=()
@@ -9,33 +10,33 @@ declare -gA COLOR_PRESETS=()
 # load_all_presets [colors_dir]
 # Reads all colors/*.conf files into the COLOR_PRESETS associative array.
 # Each entry format: "PRIMARY DIM DARK BRIGHT SECONDARY ANSI"
+# Uses its own simple key=value parser -- does NOT touch _CONFIG.
 # ---------------------------------------------------------------------------
 load_all_presets() {
     local dir="${1:-${REPO_ROOT}/colors}"
     COLOR_PRESETS=()
 
-    # Save _CONFIG (may contain profile data) and work on a clean slate
-    local -A _saved_config=()
-    local k
-    for k in "${!_CONFIG[@]}"; do _saved_config["$k"]="${_CONFIG[$k]}"; done
-
     local conf
     for conf in "$dir"/*.conf; do
         [[ -f "$conf" ]] || continue
 
-        # Reset _CONFIG for each color file
-        _CONFIG=()
-        _parse_ini "$conf"
+        local -A kv=()
+        local line
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            [[ -z "$line" || "$line" == \#* ]] && continue
+            local key="${line%%=*}" val="${line#*=}"
+            key="${key%"${key##*[![:space:]]}"}"
+            val="${val#"${val%%[![:space:]]*}"}"
+            kv["$key"]="$val"
+        done < "$conf"
 
-        local name="${_CONFIG[".name"]:-}"
+        local name="${kv[name]:-}"
         [[ -z "$name" ]] && continue
 
-        COLOR_PRESETS["$name"]="${_CONFIG[".primary"]} ${_CONFIG[".dim"]} ${_CONFIG[".dark"]} ${_CONFIG[".bright"]} ${_CONFIG[".secondary"]} ${_CONFIG[".ansi"]}"
+        COLOR_PRESETS["$name"]="${kv[primary]} ${kv[dim]} ${kv[dark]} ${kv[bright]} ${kv[secondary]} ${kv[ansi]}"
     done
-
-    # Restore original _CONFIG
-    _CONFIG=()
-    for k in "${!_saved_config[@]}"; do _CONFIG["$k"]="${_saved_config[$k]}"; done
 }
 
 # ---------------------------------------------------------------------------
@@ -52,8 +53,8 @@ load_accent() {
     fi
 
     if [[ -z "${COLOR_PRESETS[$name]+x}" ]]; then
-        echo "Error: green preset not found — load_all_presets must be called first" >&2
-        return 0
+        echo "Error: green preset not found -- load_all_presets must be called first" >&2
+        return 1
     fi
 
     local p d dk br s ansi
@@ -65,7 +66,7 @@ load_accent() {
     ACCENT_DARK="$dk"
     ACCENT_BRIGHT="$br"
     ACCENT_SECONDARY="$s"
-    ACCENT_ANSI="$ansi"
+    export ACCENT_ANSI="$ansi"
 }
 
 # ---------------------------------------------------------------------------
@@ -83,20 +84,23 @@ apply_accent() {
     local -a targets=("$ACCENT_PRIMARY" "$ACCENT_DIM" "$ACCENT_DARK" "$ACCENT_BRIGHT" "$ACCENT_SECONDARY")
 
     # Pass 0: clean up leftover placeholders from interrupted previous runs
+    local -a sed_args=()
     local -i i=0
     for role in "${roles[@]}"; do
         local target="${targets[$i]}"
         local target_bare="${target#\#}"
-        sed -i "s/@@ACCENT_${role}@@/${target}/g" "$file"
-        sed -i "s/@@BARE_${role}@@/${target_bare}/g" "$file"
+        sed_args+=(-e "s/@@ACCENT_${role}@@/${target}/g")
+        sed_args+=(-e "s/@@BARE_${role}@@/${target_bare}/g")
         for preset in "${!COLOR_PRESETS[@]}"; do
-            sed -i "s/@@${preset}_${role}@@/${target}/g" "$file"
-            sed -i "s/@@BARE_${preset}_${role}@@/${target_bare}/g" "$file"
+            sed_args+=(-e "s/@@${preset}_${role}@@/${target}/g")
+            sed_args+=(-e "s/@@BARE_${preset}_${role}@@/${target_bare}/g")
         done
         i=$(( i + 1 ))
     done
+    sed -i "${sed_args[@]}" "$file"
 
     # Pass 1: known preset colors → preset-specific placeholders
+    sed_args=()
     for preset in "${!COLOR_PRESETS[@]}"; do
         [[ "$preset" == "$ACCENT_NAME" ]] && continue
         read -r p d dk br s _ansi <<< "${COLOR_PRESETS[$preset]}"
@@ -104,23 +108,30 @@ apply_accent() {
         local -i i=0
         for src in "$p" "$d" "$dk" "$br" "$s"; do
             local src_bare="${src#\#}" role="${roles[$i]}"
-            sed -i "s/${src}/@@${preset}_${role}@@/gI" "$file"
-            sed -i "s/=${src_bare}$/=@@BARE_${preset}_${role}@@/gI" "$file"
+            sed_args+=(-e "s/${src}/@@${preset}_${role}@@/gI")
+            sed_args+=(-e "s/=${src_bare}$/=@@BARE_${preset}_${role}@@/gI")
             i=$(( i + 1 ))
         done
 
-        sed -i "s/Tela-${preset}/Tela-${ACCENT_NAME}/g" "$file"
+        sed_args+=(-e "s/Tela-${preset}/Tela-${ACCENT_NAME}/g")
     done
+    if [[ ${#sed_args[@]} -gt 0 ]]; then
+        sed -i "${sed_args[@]}" "$file"
+    fi
 
     # Pass 2: all placeholders → target colors
+    sed_args=()
     for preset in "${!COLOR_PRESETS[@]}"; do
         [[ "$preset" == "$ACCENT_NAME" ]] && continue
         local -i i=0
         for role in "${roles[@]}"; do
             local target="${targets[$i]}" target_bare="${targets[$i]#\#}"
-            sed -i "s/@@${preset}_${role}@@/${target}/g" "$file"
-            sed -i "s/@@BARE_${preset}_${role}@@/${target_bare}/g" "$file"
+            sed_args+=(-e "s/@@${preset}_${role}@@/${target}/g")
+            sed_args+=(-e "s/@@BARE_${preset}_${role}@@/${target_bare}/g")
             i=$(( i + 1 ))
         done
     done
+    if [[ ${#sed_args[@]} -gt 0 ]]; then
+        sed -i "${sed_args[@]}" "$file"
+    fi
 }

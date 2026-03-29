@@ -6,7 +6,7 @@
     padding = 10
     horizontal_padding = 10
     frame_width = 2
-    frame_color = "#ff8800"
+    frame_color = "#88DD00"
     separator_color = frame
     font = Sans 11
     corner_radius = 0
@@ -22,7 +22,7 @@
 [urgency_normal]
     background = "#1e1e1e"
     foreground = "#ffffff"
-    frame_color = "#ff8800"
+    frame_color = "#88DD00"
     timeout = 10
 
 [urgency_critical]
